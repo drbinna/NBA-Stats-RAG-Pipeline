@@ -1,0 +1,12 @@
+<div class="app-container">
+  <h1>AI Engineering Sandbox</h1>
+  <div class="chat-container">
+    <div class="messages">
+      <div *ngFor="let msg of messages" [ngClass]="msg.sender">{{ msg.text }}</div>
+    </div>
+    <form (ngSubmit)="sendMessage()" class="input-area">
+      <input [(ngModel)]="userInput" name="userInput" placeholder="Type a message..." />
+      <button type="submit">Send</button>
+    </form>
+  </div>
+</div>
