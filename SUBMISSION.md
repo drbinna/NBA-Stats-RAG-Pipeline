@@ -1,7 +1,7 @@
 # Submission Information
 
-Applicant Name:
+Applicant Name: Obinna Amadi
 
-Applicant Email Address (the one you applied to the role with):
+Applicant Email Address (the one you applied to the role with): obinnaamadie@gmail.com
 
 
