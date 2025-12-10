@@ -2,12 +2,59 @@
 
 Answer the questions listed in the Part 3 section of Submission Requirements. Do NOT use any AI tools for this section. Limit each response to 500 words or fewer.
 
-1. 
+1. During setup, I encountered a port conflict between a local Ollama instance and the Docker service on port 11434. I resolved this by stopping local processes and pulling models into the Docker container, ensuring a reproducible environment as specified in the README.
 
-2.
+For data ingestion, I replaced the original pandas to_sql() method with PostgreSQL's native COPY command via cursor.copy_expert(). This streams CSV data directly to PostgreSQL's bulk loader, bypassing SQL parsing overhead. For player_box_scores (36,222 rows), this significantly reduced ingestion time, enabling faster iteration during development.
 
-3.
+To select the optimal vector index, I queried PostgreSQL for the total vector count, which was 37,904 vectors (1,682 games + 36,222 player box scores). With ~38K vectors, HNSW was optimal—it provides approximate nearest neighbour search without training, handles updates without rebuilds, and balances speed with accuracy. IVFFlat requires index rebuilds on updates, and StreamingDiskANN needs the pgvectorscale extension rather than the specified pgvector.
 
-4.
+I validated my embedding approach using Jupyter notebooks before running the full pipeline. Testing revealed three critical issues: raw team IDs instead of names prevented semantic matching, single date formats failed to accommodate varied query formats like "1-26-24" or "Christmas Day", and player statistics were not embedded at all.
 
-5. 
+I solved this by joining lookup tables for human-readable names, generating multiple date representations with special game tags (e.g., Christmas Day, New Year's Eve), and extending embeddings to cover both game_details and player_box_scores.
+
+After initial testing showed 67% Top-1 accuracy, I implemented targeted fixes: pre-computing top scorers with "Leading scorer" tags, adding season text such as "2023-24 NBA Season", inferring NBA debuts by matching draft year to the season start, and calculating triple-doubles dynamically. Final results: 78% Top-1 accuracy (7/9) and 100% Top-5 accuracy (9/9). Q7 returned null after verifying the requested date (January 2023) falls outside the dataset range.
+
+2. My background spans full-stack development, data engineering, and machine learning. I have experience with Python, SQL, TypeScript, and cloud infrastructure, including AWS and Docker. This assignment directly leveraged my SQL skills for complex JOINs and aggregations, Python for data processing and API development, and Angular for the frontend interface.
+
+As permitted in the README, I downgraded the LLM from the suggested llama3.2:3b (3 billion parameters) to llama3.2:1b (1 billion parameters) due to hardware constraints on my machine. The smaller model still produced accurate answers when provided with well-structured context from the retrieval pipeline, demonstrating that embedding quality and prompt engineering matter as much as model size for RAG applications.
+
+For Part 2's video deliverable, the demo file exceeded GitHub's 100MB limit. I resolved this by uploading to AWS S3 and including the presigned URL in the part2 folder. This demonstrates practical cloud infrastructure knowledge—using the right tool for the constraint rather than forcing an inappropriate solution.
+
+Through this assignment, I deepened my understanding of embedding serialisation strategy, specifically how text representation directly impacts retrieval accuracy. I also gained hands-on experience with pgvector's HNSW indexing and learned the importance of testing with data subsets before committing to full embedding runs.
+
+I hope to learn more about fine-tuning embedding models for domain-specific retrieval, hybrid search combining vector similarity with structured filters, and scaling RAG pipelines for production workloads.
+
+
+3. With sub-possession data capturing passes, screens, drives, and court coordinates for all 10 players, I would approach analysis in three phases.
+
+First, I would build spatial features by segmenting the court into zones (paint, mid-range, three-point, and corner) and computing metrics such as pass velocity, drive frequency by zone, and screen effectiveness (measured by defender displacement). Aggregating these at the possession level creates a feature matrix for each play.
+
+Second, I would identify play patterns using clustering algorithms, such as K-means or DBSCAN, on possession sequences. This would reveal common offensive sets (pick-and-roll, isolation, motion offence) and their variations. For each cluster, I would calculate success metrics: points per possession, shot quality generated, and turnover rate.
+
+Third, I would build predictive models answering specific strategy questions. For example, "Which defender should rotate when the ball swings to the corner?" could be modelled by analysing historical outcomes when different rotation decisions were made. Similarly, "What's the optimal screen angle against drop coverage?" could be answered by correlating screen geometry with resulting shot quality.
+
+Technologies I would apply include Python with pandas for feature engineering, scikit-learn for clustering and classification, and visualisation tools like Plotly for interactive court maps. For real-time applications, I would consider streaming frameworks like Apache Kafka to process live coordinate data.
+
+4. With 29 skeletal points per player at 60fps, the data volume is substantial—approximately 17,400 joint positions per second across all players. Drawing inspiration from the AWS-NBA partnership's "Inside the Game" platform, I would propose three features that go beyond traditional box score metrics.
+
+Feature 1: Gravity Amplification Index. AWS's new "Gravity" stat measures the defensive attention players command. Using skeletal data, I would quantify this in real-time by tracking the defender's hip orientation, head position, and foot angles relative to the offensive players. When Steph Curry moves off the ball, defenders' skeletal postures reveal how much they're pulled toward him versus their assigned man. This creates a dynamic "Gravity Map" that shows court spacing advantages that traditional statistics miss.
+
+Feature 2: Micro-Moment Detection for Fan Engagement. Beyond plays, fans connect with athletes' human moments—the intense stare before a free throw, the celebratory gesture after a block, the bench chemistry during timeouts. Using skeletal tracking of facial positions, combined with body language cues (such as arm raises and chest positioning), I would build a classifier that identifies emotionally resonant micro-moments. These feed into automated highlight generation, prioritising clips that capture not just athletic excellence but emotional peaks that drive viral content and deeper fan connections.
+
+Feature 3: Fatigue-Adjusted Shot Difficulty. AWS's "Shot Difficulty (xFG%)" evaluates shots based on positioning and defensive pressure. I would enhance this by incorporating shooter biomechanics—specifically, how joint angles during release compare to their baseline values when the shooter is fresh. A player's knee bend, elbow extension, and follow-through wrist position all degrade with fatigue. By detecting these deviations, we can predict shooting slumps before they appear in box scores, informing substitution timing and load management.
+
+For exploration, I would leverage AWS SageMaker for training models on movement patterns, Amazon Kinesis for streaming data pipelines, and Amazon Timestream for time-series queries. My insight is that fans and teams want metrics that measure previously intangible aspects—Gravity, Shot Difficulty, and Defensive Box Score are just the basics. Skeletal data enables the quantification of effort, chemistry, fatigue, and emotion.
+
+5. Given scouting reports, internal notes, and constraint documents, I would design a five-stage pipeline.
+
+Stage 1: Data Preparation. I would parse documents, preserving metadata (author, date, subject, player/team), chunk the text into semantically coherent segments (by paragraph or section), and clean noise while preserving basketball terminology.
+
+Stage 2: Embedding and Indexing. Using a domain-appropriate embedding model (potentially fine-tuned on basketball text), I would generate vectors for each chunk and store them in a vector database with metadata filters. This enables queries like "scouting reports about guards from the last 30 days."
+
+Stage 3: Retrieval System. I would implement a hybrid search combining semantic similarity with keyword matching and metadata filters. For queries like "What are our constraints on trading for players over 30?", the system retrieves relevant policy documents and past decisions.
+
+Stage 4: LLM-Powered Analysis. Retrieved context feeds into an LLM that synthesises findings, identifies contradictions across documents, and generates summaries. Crucially, I would implement citation tracking so every claim links back to source documents for verification.
+
+Stage 5: Workflow Integration. The system would integrate with existing tools—Slack for quick queries, dashboards for trade deadline preparation, and scheduled reports summarising new information. User feedback (thumbs up/down on answers) would continuously improve retrieval relevance.
+
+Validation involves human review of generated summaries against source documents, A/B testing retrieval strategies, and tracking decision outcomes where the system was consulted. Technologies include LangChain for orchestration, Pinecone or pgvector for storage, and FastAPI for serving.
