@@ -1,8 +1,6 @@
 ##### Part 4: Embedding Fine-Tuning (optional)
 
-Document your approach to solving this problem in this file. Summarize your approach, hyperparameters, and evaluation methods.
-
-##### Part 4: Embedding Fine-Tuning (optional)
+**🔗 Fine-tuned Model:** https://huggingface.co/drbinna/e5-nba-finetuned
 
 ## 1. Approach
 
@@ -10,12 +8,12 @@ I fine-tuned `intfloat/e5-base-v2` using contrastive learning to improve NBA-spe
 
 **Key Design Decisions:**
 
-1. **Prefix Requirement:** E5 models require "query: " and "passage: " prefixes. Per Section 4.1: "We use a shared encoder for all input texts and break the symmetry by adding two prefix identifiers 'query:' and 'passage:' to q and d, respectively."
+1. **Prefix Requirement:** E5 models require "query: " and "passage: " prefixes. Per Section 4.1: "We use a shared encoder for all input texts and break the symmetry by adding two prefix identifiers 'query:' and 'passage:' to q and d respectively."
 
 2. **Loss Function:** InfoNCE with in-batch negatives. Per Section 4.1: "Here we choose to use the in-batch negatives, where the passages from other pairs in a batch serve as negative samples."
 
 3. **Training Data:** 50 question-context pairs derived from actual project data:
-   - 10 pairs from the provided evaluation questions (Q1-Q10)
+   - 10 pairs from provided evaluation questions (Q1-Q10)
    - 25 synthetic game-level queries (Christmas games, high-scoring, season openers)
    - 15 player stat queries (triple-doubles, 50+ point games, career highs)
    - Split: 35 train, 5 validation, 10 test
@@ -111,7 +109,27 @@ Evaluated on 10 held-out test queries (from evaluation questions Q1-Q10):
 
 ---
 
-## 5. Files
+## 5. Model Deployment
+
+The fine-tuned model is publicly available on Hugging Face Hub:
+
+🔗 **https://huggingface.co/drbinna/e5-nba-finetuned**
+
+**Usage:**
+```python
+from sentence_transformers import SentenceTransformer
+
+# Load directly from Hugging Face Hub
+model = SentenceTransformer("drbinna/e5-nba-finetuned")
+
+# Encode with required E5 prefixes
+query_embedding = model.encode("query: Who scored 73 points on January 26, 2024?")
+passage_embedding = model.encode("passage: Luka Dončić scored 73 points...")
+```
+
+---
+
+## 6. Files
 
 ```
 part4/
@@ -126,8 +144,9 @@ part4/
 
 ---
 
-## 6. References
+## 7. References
 
 1. Wang, L., et al. (2022). Text Embeddings by Weakly-Supervised Contrastive Pre-training. arXiv:2212.03533.
 2. Reimers, N., & Gurevych, I. (2019). Sentence-BERT. EMNLP 2019.
 3. intfloat/e5-base-v2: https://huggingface.co/intfloat/e5-base-v2
+4. Fine-tuned model: https://huggingface.co/drbinna/e5-nba-finetuned
