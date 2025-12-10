@@ -756,51 +756,154 @@ def answer_question(cx, question, return_schema):
     else:
         result, context_text = generate_answer_for_player(cx, question, return_schema, date, teams, season, player, special_event)
     
-    # Return early if no data found
+    # Return early if no data found - with diagnostic information
     if not result:
-        return None
+        # Build diagnostic message explaining why data wasn't found
+        diagnostic_parts = []
+        
+        if query_type == 'player':
+            # Check what we tried to find
+            if date:
+                diagnostic_parts.append(f"searched for date: {date}")
+            if teams:
+                diagnostic_parts.append(f"searched for teams: {', '.join(teams)}")
+            if player:
+                diagnostic_parts.append(f"searched for player: {player}")
+            if season:
+                diagnostic_parts.append(f"searched for season: {season}")
+            
+            # Try to find if game exists without player filter
+            if date and teams:
+                games = search_games_hybrid(cx, question, date, teams, season, special_event, top_k=1)
+                if games:
+                    diagnostic_parts.append(f"Found the game, but could not find player '{player}' in that game's box scores")
+                else:
+                    # Try without team filter to see if date matches
+                    games_no_teams = search_games_hybrid(cx, question, date, None, season, special_event, top_k=1)
+                    if games_no_teams:
+                        diagnostic_parts.append(f"Found games on that date, but none matching the specified teams ({', '.join(teams)}). The team abbreviations may not match (e.g., 'Rockets' should be 'HOU', 'Lakers' should be 'LAL')")
+                    else:
+                        diagnostic_parts.append(f"Could not find any games on the specified date ({date})")
+            elif date:
+                games = search_games_hybrid(cx, question, date, None, season, special_event, top_k=1)
+                if games:
+                    diagnostic_parts.append(f"Found games on that date, but none matching the specified teams")
+                else:
+                    diagnostic_parts.append(f"Could not find any games on the specified date ({date})")
+        else:
+            # Game query
+            if date:
+                diagnostic_parts.append(f"searched for date: {date}")
+            if teams:
+                diagnostic_parts.append(f"searched for teams: {', '.join(teams)}")
+            if season:
+                diagnostic_parts.append(f"searched for season: {season}")
+            diagnostic_parts.append("Could not find a matching game in the database")
+        
+        diagnostic_msg = "No data found. " + ". ".join(diagnostic_parts) + "."
+        return {
+            'answer': diagnostic_msg,
+            'evidence': []
+        }
     
-    # Generate concise natural-language answer using LLM
+    # Build a deterministic fallback answer from structured data
+    def build_structured_answer(res):
+        # Player-centric answers
+        if 'player_name' in res and 'points' in res:
+            parts = [f"{res['player_name']} scored {res['points']} points"]
+            if 'rebounds' in res:
+                parts.append(f"{res['rebounds']} rebounds")
+            if 'assists' in res:
+                parts.append(f"{res['assists']} assists")
+            return '. '.join(parts) + '.'
+
+        # Game-centric answers
+        if 'winner' in res or 'score' in res or 'points' in res:
+            pieces = []
+            if 'winner' in res:
+                pieces.append(f"Winner: {res['winner']}")
+            if 'score' in res:
+                pieces.append(f"Score: {res['score']}")
+            if 'points' in res and 'winner' not in res:
+                pieces.append(f"Points: {res['points']}")
+            if pieces:
+                return '. '.join(pieces) + '.'
+
+        return ""
+    
+    # Always try to use LLM for natural language generation (with fast timeout)
     if context_text and LLM_MODEL:
-        # Very directive prompt to force the model to use provided data
+        # Directive prompt that forces the model to use provided historical data
         prompt = (
-            f"Using ONLY the data below, answer the question. Do not refuse or say you don't have data.\n\n"
+            f"You are answering a question about historical NBA game data. "
+            f"The data below is from a database and is accurate. Use it to answer the question directly.\n\n"
             f"Question: {question}\n"
             f"Data: {context_text}\n\n"
-            f"Answer:"
+            f"Answer using ONLY the data provided. Do not refuse or say you don't have information. "
+            f"The data is historical and accurate. Answer:"
         )
         try:
-            llm_resp = ollama_chat(LLM_MODEL, prompt)
-            if llm_resp and len(llm_resp.strip()) > 10:
-                # Filter out refusal responses - check if response starts with refusal
+            llm_resp = ollama_chat(LLM_MODEL, prompt, timeout=10)
+            if llm_resp and len(llm_resp.strip()) > 5:
+                # Filter out refusal responses
                 refusal_phrases = [
                     "i can't", "i cannot", "i don't have", "i don't know",
                     "not available", "not provided", "cannot verify", "cannot provide",
                     "unable to", "don't have access", "knowledge cutoff", "i will need to look",
-                    "however, since", "i can only provide a general"
+                    "however, since", "i can only provide", "real-time", "future scores"
                 ]
                 llm_resp_lower = llm_resp.strip().lower()
-                # Check if response starts with or heavily contains refusal phrases
-                first_50_chars = llm_resp_lower[:50]
-                if not any(phrase in first_50_chars for phrase in refusal_phrases):
-                    # Extract just the answer part (sometimes answer is at the end after refusal)
-                    # Look for sentences that contain numbers or specific answers
-                    sentences = llm_resp.split('.')
-                    # Find sentences with numbers or that seem like answers
-                    answer_sentences = [s.strip() for s in sentences if any(c.isdigit() for c in s) or len(s) > 20]
-                    if answer_sentences:
-                        # Use the last meaningful sentence (often the actual answer)
-                        clean_answer = '. '.join(answer_sentences[-2:]).strip()
-                        if len(clean_answer) > 15:
-                            result['answer'] = clean_answer
+                first_100_chars = llm_resp_lower[:100]
+                
+                # Check if response contains refusal phrases
+                if any(phrase in first_100_chars for phrase in refusal_phrases):
+                    # LLM refused - fall through to structured answer
+                    pass
+                else:
+                    # Clean up response
+                    clean_resp = llm_resp.strip()
+                    # Remove common prefixes
+                    for prefix in ["Answer:", "A:", "The answer is", "Based on the data"]:
+                        if clean_resp.lower().startswith(prefix.lower()):
+                            clean_resp = clean_resp[len(prefix):].strip()
+                            if clean_resp.startswith(':'):
+                                clean_resp = clean_resp[1:].strip()
+                    
+                    # For questions asking for multiple stats (triple-double, etc.), take up to 3 sentences
+                    # Otherwise take first sentence or first 200 chars
+                    sentences = [s.strip() for s in clean_resp.split('.') if s.strip()]
+                    if 'triple-double' in question.lower() or 'triple double' in question.lower() or 'rebounds' in question.lower() and 'assists' in question.lower():
+                        # Multi-stat questions: take up to 3 sentences or 250 chars
+                        if len(sentences) > 0:
+                            answer_parts = sentences[:3]
+                            answer_text = '. '.join(answer_parts) + '.'
+                            if len(answer_text) > 250:
+                                answer_text = answer_text[:250].strip() + '...'
+                            result['answer'] = answer_text
+                        elif len(clean_resp) > 10:
+                            result['answer'] = clean_resp[:250].strip() + ('...' if len(clean_resp) > 250 else '')
                     else:
-                        # If no answer sentences found, use the full response if it's reasonable
-                        if len(llm_resp.strip()) > 15:
-                            result['answer'] = llm_resp.strip()
-        except Exception as e:
-            # Silently skip if LLM fails - structured answer is sufficient
-            # LLM answer is optional, structured data is the primary output
+                        # Single-stat questions: take first sentence or first 200 chars
+                        if len(sentences) > 0 and len(sentences[0]) < 200:
+                            result['answer'] = sentences[0] + '.'
+                        elif len(clean_resp) > 10:
+                            result['answer'] = clean_resp[:200].strip() + ('...' if len(clean_resp) > 200 else '')
+        except Exception:
+            # Fall back to structured answer if LLM fails
             pass
+    
+    # Fallback to structured answer if LLM didn't provide one
+    if not result.get('answer'):
+        structured_answer = build_structured_answer(result)
+        if structured_answer:
+            result['answer'] = structured_answer
+        elif context_text:
+            # Last resort: return context
+            result['answer'] = context_text
+
+    # Ensure evidence is always present for frontend consumption
+    if 'evidence' not in result:
+        result['evidence'] = []
     
     return result
 
