@@ -22,6 +22,8 @@ I resolved this by writing a script to fetch missing player data from the NBA St
 
 As permitted in the README, I downgraded the LLM from the suggested llama3.2:3b (3 billion parameters) to llama3.2:1b (1 billion parameters) due to hardware constraints on my machine. The smaller model still produced accurate answers when provided with well-structured context from the retrieval pipeline, demonstrating that embedding quality and prompt engineering matter as much as model size for RAG applications.
 
+To demonstrate end-to-end ML workflow proficiency, I deployed my fine-tuned embedding model to Hugging Face Hub at https://huggingface.co/drbinna/e5-nba-finetuned. Using the huggingface_hub Python API, I created the repository programmatically with HfApi.create_repo() and uploaded the 438MB model weights via upload_folder(). The model can now be loaded by anyone with a single line: SentenceTransformer("drbinna/e5-nba-finetuned"). This practice enables reproducibility, version control for model artifacts, and seamless integration into production pipelines.
+
 For Part 2's video deliverable, the demo file exceeded GitHub's 100MB limit. I resolved this by uploading to AWS S3 and including the presigned URL in the part2 folder. This demonstrates practical cloud infrastructure knowledge—using the right tool for the constraint rather than forcing an inappropriate solution.
 
 Through this assignment, I deepened my understanding of embedding serialisation strategy, specifically how text representation directly impacts retrieval accuracy. I also gained hands-on experience with pgvector's HNSW indexing and learned the importance of testing with data subsets before committing to full embedding runs.
