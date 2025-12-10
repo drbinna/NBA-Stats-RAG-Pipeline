@@ -2,7 +2,7 @@ import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
 
 export class BaseService {
-  protected baseUrl = 'http://localhost:8001/api';
+  protected baseUrl = 'http://localhost:8000/api';
 
   constructor(protected http: HttpClient) {}
 
