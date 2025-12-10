@@ -835,12 +835,12 @@ def answer_question(cx, question, return_schema):
     if context_text and LLM_MODEL:
         # Directive prompt that forces the model to use provided historical data
         prompt = (
-            f"You are answering a question about historical NBA game data. "
-            f"The data below is from a database and is accurate. Use it to answer the question directly.\n\n"
+            "You are answering a question about historical NBA game data. "
+            "The data below is from a database and is accurate. Use it to answer the question directly.\n\n"
             f"Question: {question}\n"
             f"Data: {context_text}\n\n"
-            f"Answer using ONLY the data provided. Do not refuse or say you don't have information. "
-            f"The data is historical and accurate. Answer:"
+            "Answer using ONLY the data provided. Do not refuse or say you don't have information. "
+            "The data is historical and accurate. Answer:"
         )
         try:
             llm_resp = ollama_chat(LLM_MODEL, prompt, timeout=10)
