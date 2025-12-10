@@ -1,12 +1,95 @@
 <div class="app-container">
-  <h1>AI Engineering Sandbox</h1>
-  <div class="chat-container">
-    <div class="messages">
-      <div *ngFor="let msg of messages" [ngClass]="msg.sender">{{ msg.text }}</div>
+  <!-- Header -->
+  <header class="thunder-header">
+    <div class="thunder-brand">
+      <div class="thunder-logo">
+        <img
+          src="assets/okc_logo_transparent.png"
+          alt="Oklahoma City Thunder"
+          class="logo-image"
+          width="100"
+          height="100"
+          decoding="async"
+        />
+      </div>
+      <span class="thunder-title">Courtside</span>
     </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="main-content">
+    <!-- Player GIF Carousel -->
+    <div class="carousel" *ngIf="carouselImages.length">
+      <div class="carousel-track" [style.transform]="'translateX(-' + currentSlide * 100 + '%)'">
+        <div class="carousel-slide" *ngFor="let gif of carouselImages; let i = index">
+          <img
+            [src]="gif.src"
+            [alt]="gif.alt"
+            loading="lazy"
+            decoding="async"
+            width="800"
+            height="220"
+          />
+        </div>
+      </div>
+      <div class="carousel-dots" *ngIf="carouselImages.length > 1">
+        <button 
+          *ngFor="let gif of carouselImages; let i = index"
+          [class.active]="i === currentSlide"
+          (click)="goToSlide(i)"
+          [attr.aria-label]="'Show slide ' + (i + 1)">
+        </button>
+      </div>
+    </div>
+
+    <!-- Welcome Message -->
+    <div class="welcome-section" *ngIf="showWelcome">
+      <p class="welcome-text">
+        - Welcome to <strong>Courtside</strong>! ⚡ Your courtside seat to Thunder stats and NBA action. Ask me things like "How many points did SGA score on 4/9?" or "Who was the leading scorer in OKC's win over SAC?" Thunder Up!
+      </p>
+    </div>
+
+    <!-- Chat Messages -->
+    <div class="chat-container" *ngIf="!showWelcome || messages.length > 0">
+      <div class="messages">
+        <div *ngFor="let msg of messages" [ngClass]="'message message-' + msg.sender">
+          <div class="message-content" *ngIf="msg.sender !== 'loading'">
+            <div class="message-text">{{ msg.text }}</div>
+            <div class="evidence-json" *ngIf="msg.evidence?.length">
+              Evidence: {{ formatEvidence(msg.evidence) }}
+            </div>
+          </div>
+          <div class="loading-indicator" *ngIf="msg.sender === 'loading'">
+            <div class="loading-dots">
+              <span></span>
+              <span></span>
+              <span></span>
+            </div>
+            <span class="loading-text">{{ msg.text }}</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Input Section -->
+  <div class="input-section">
     <form (ngSubmit)="sendMessage()" class="input-area">
-      <input [(ngModel)]="userInput" name="userInput" placeholder="Type a message..." />
-      <button type="submit">Send</button>
+      <input 
+        [(ngModel)]="userInput" 
+        name="userInput" 
+        placeholder="How can I help you?" 
+        class="chat-input"
+        [disabled]="isLoading()"
+      />
+      <button type="submit" class="send-button">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="10" stroke="white" stroke-width="2"/>
+          <path d="M2 12h20" stroke="white" stroke-width="2" stroke-linecap="round"/>
+          <path d="M12 2c3.5 3 5.5 7 0 20" stroke="white" stroke-width="2" stroke-linecap="round"/>
+          <path d="M12 2c-3 3-5.5 7 0 20" stroke="white" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </button>
     </form>
   </div>
 </div>

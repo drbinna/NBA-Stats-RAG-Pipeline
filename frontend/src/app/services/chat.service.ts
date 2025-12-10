@@ -14,7 +14,6 @@ export class ChatService extends BaseService {
   }
 
   sendMessage(question: string): Observable<any> {
-    const endpoint = `${this.baseUrl}/chat`;
-    return this.post(endpoint, { question });
+    return this.post('/chat', { question });
   }
 }
