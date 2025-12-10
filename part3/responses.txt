@@ -10,9 +10,13 @@ To select the optimal vector index, I queried PostgreSQL for the total vector co
 
 I validated my embedding approach using Jupyter notebooks before running the full pipeline. Testing revealed three critical issues: raw team IDs instead of names prevented semantic matching, single date formats failed to accommodate varied query formats like "1-26-24" or "Christmas Day", and player statistics were not embedded at all.
 
-I solved this by joining lookup tables for human-readable names, generating multiple date representations with special game tags (e.g., Christmas Day, New Year's Eve), and extending embeddings to cover both game_details and player_box_scores.
+I solved this by joining lookup tables for human-readable names, generating multiple date representations with special game tags (e.g., Christmas Day, New Year's Eve), and extending embeddings to cover both game details and player box scores.
 
 After initial testing showed 67% Top-1 accuracy, I implemented targeted fixes: pre-computing top scorers with "Leading scorer" tags, adding season text such as "2023-24 NBA Season", inferring NBA debuts by matching draft year to the season start, and calculating triple-doubles dynamically. Final results: 78% Top-1 accuracy (7/9) and 100% Top-5 accuracy (9/9). Q7 returned null after verifying the requested date (January 2023) falls outside the dataset range.
+
+During embedding validation, I discovered that players.csv contained only 451 players, while player_box_scores referenced 683 unique player IDs, resulting in 232 players being listed as "Unknown Player" in serialised embeddings. This significantly degraded the retrieval accuracy for player-related questions. 
+
+I resolved this by writing a script to fetch missing player data from the NBA Stats API (stats.nba.com/stats/commonplayerinfo), extracting first name, last name, team ID, and draft year for each missing player. After updating players.csv to include 683 players and re-running ingestion, all player embeddings correctly included full names, thereby improving semantic matching for questions such as "Who was the leading scorer?" and "Did Nikola Jokić record a triple-double?"
 
 2. My background spans full-stack development, data engineering, and machine learning. I have experience with Python, SQL, TypeScript, and cloud infrastructure, including AWS and Docker. This assignment directly leveraged my SQL skills for complex JOINs and aggregations, Python for data processing and API development, and Angular for the frontend interface.
 
