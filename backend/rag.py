@@ -787,7 +787,7 @@ def answer_question(cx, question, return_schema):
             elif date:
                 games = search_games_hybrid(cx, question, date, None, season, special_event, top_k=1)
                 if games:
-                    diagnostic_parts.append(f"Found games on that date, but none matching the specified teams")
+                    diagnostic_parts.append("Found games on that date, but none matching the specified teams")
                 else:
                     diagnostic_parts.append(f"Could not find any games on the specified date ({date})")
         else:
