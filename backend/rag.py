@@ -39,6 +39,8 @@ MONTH_MAP = {
 
 def parse_date(question):
     """Extract date from question in various formats"""
+    import datetime
+    
     question_lower = question.lower()
     
     # Pattern: "October 27, 2023" or "December 25, 2023"
@@ -47,7 +49,12 @@ def parse_date(question):
         month = MONTH_MAP[match.group(1)]
         day = int(match.group(2))
         year = int(match.group(3))
-        return f"{year}-{month:02d}-{day:02d}"
+        # Validate date
+        try:
+            datetime.date(year, month, day)
+            return f"{year}-{month:02d}-{day:02d}"
+        except ValueError:
+            return None
     
     # Pattern: "1-26-24" or "1/26/24"
     match = re.search(r'(\d{1,2})[-/](\d{1,2})[-/](\d{2})(?!\d)', question)
@@ -56,7 +63,12 @@ def parse_date(question):
         day = int(match.group(2))
         year = int(match.group(3))
         year = 2000 + year if year < 50 else 1900 + year
-        return f"{year}-{month:02d}-{day:02d}"
+        # Validate date
+        try:
+            datetime.date(year, month, day)
+            return f"{year}-{month:02d}-{day:02d}"
+        except ValueError:
+            return None
     
     # Pattern: "2/1/2025"
     match = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', question)
@@ -64,7 +76,12 @@ def parse_date(question):
         month = int(match.group(1))
         day = int(match.group(2))
         year = int(match.group(3))
-        return f"{year}-{month:02d}-{day:02d}"
+        # Validate date
+        try:
+            datetime.date(year, month, day)
+            return f"{year}-{month:02d}-{day:02d}"
+        except ValueError:
+            return None
     
     # Pattern: "4/9" (month/day without year - infer from season or use 2024)
     match = re.search(r'(\d{1,2})/(\d{1,2})(?!\d)', question)
@@ -76,9 +93,15 @@ def parse_date(question):
         if season_match:
             season_year = int(season_match.group(1))
             # NBA season spans two years - April is in the second year
-            return f"{season_year + 1}-{month:02d}-{day:02d}"
-        # Default to 2024 if no season specified
-        return f"2024-{month:02d}-{day:02d}"
+            year = season_year + 1
+        else:
+            year = 2024
+        # Validate date
+        try:
+            datetime.date(year, month, day)
+            return f"{year}-{month:02d}-{day:02d}"
+        except ValueError:
+            return None
     
     return None
 
@@ -407,18 +430,23 @@ def precompute_query_embeddings():
 def search_games_hybrid(cx, question, date=None, teams=None, season=None, special_event=None, top_k=5):
     """Hybrid search: SQL filters + vector similarity for games"""
     
-    # Build SQL filter
+    # Build SQL filter with parameterized queries
     filters = []
+    params = {}
     if date:
-        filters.append(f"g.game_timestamp::date = '{date}'")
+        filters.append("g.game_timestamp::date = :date")
+        params['date'] = date
     if teams:
         team_conditions = []
-        for team in teams:
-            team_conditions.append(f"t1.abbreviation = '{team}' OR t2.abbreviation = '{team}'")
+        for i, team in enumerate(teams):
+            param_name = f"team_{i}"
+            team_conditions.append(f"t1.abbreviation = :{param_name} OR t2.abbreviation = :{param_name}")
+            params[param_name] = team
         if team_conditions:
             filters.append(f"({' OR '.join(team_conditions)})")
     if season:
-        filters.append(f"g.season = {season}")
+        filters.append("g.season = :season")
+        params['season'] = int(season)
     if special_event == 'christmas':
         filters.append("EXTRACT(MONTH FROM g.game_timestamp::timestamp) = 12 AND EXTRACT(DAY FROM g.game_timestamp::timestamp) = 25")
     if special_event == 'nye':
@@ -429,7 +457,11 @@ def search_games_hybrid(cx, question, date=None, teams=None, season=None, specia
     # Get embedding for semantic search (use cache if available)
     query_emb = get_query_embedding(question)
     emb_str = "[" + ",".join(map(str, query_emb)) + "]"
+    params['top_k'] = int(top_k)
     
+    # For vector operations, we need to embed the vector string directly in SQL
+    # since SQLAlchemy's parameter binding doesn't work well with pgvector's ::vector cast
+    # The embedding vector is safe to embed as it's generated from our own code, not user input
     sql = f"""
         SELECT g.game_id, g.game_timestamp, g.season,
                t1.city || ' ' || t1.name as home_team, t1.abbreviation as home_abbr,
@@ -441,10 +473,10 @@ def search_games_hybrid(cx, question, date=None, teams=None, season=None, specia
         JOIN teams t2 ON g.away_team_id = t2.team_id
         WHERE {where_clause} AND g.embedding IS NOT NULL
         ORDER BY g.embedding <=> '{emb_str}'::vector
-        LIMIT {top_k}
+        LIMIT :top_k
     """
     
-    results = cx.execute(text(sql))
+    results = cx.execute(text(sql), params)
     return results.fetchall()
 
 
@@ -452,32 +484,35 @@ def search_box_scores_hybrid(cx, question, date=None, teams=None, season=None,
                               player_name=None, special_event=None, top_k=5):
     """Hybrid search: SQL filters + vector similarity for player box scores"""
     
-    # Build SQL filter
+    # Build SQL filter with parameterized queries
     filters = []
+    params = {}
     if date:
-        filters.append(f"g.game_timestamp::date = '{date}'")
+        filters.append("g.game_timestamp::date = :date")
+        params['date'] = date
     if teams:
         team_conditions = []
-        for team in teams:
-            team_conditions.append(f"t.abbreviation = '{team}'")
-            team_conditions.append(f"t1.abbreviation = '{team}'")
-            team_conditions.append(f"t2.abbreviation = '{team}'")
+        for i, team in enumerate(teams):
+            param_name = f"team_{i}"
+            team_conditions.append(f"t.abbreviation = :{param_name}")
+            team_conditions.append(f"t1.abbreviation = :{param_name}")
+            team_conditions.append(f"t2.abbreviation = :{param_name}")
+            params[param_name] = team
         if team_conditions:
             filters.append(f"({' OR '.join(team_conditions)})")
     if season:
-        filters.append(f"g.season = {season}")
+        filters.append("g.season = :season")
+        params['season'] = int(season)
     if player_name:
         name_parts = player_name.split()
         if len(name_parts) >= 2:
-            # More flexible matching - handle special characters and variations
-            # Use OR logic for first/last name to catch variations
-            first_name = name_parts[0].replace("'", "''")  # Escape SQL quotes
-            last_name = name_parts[-1].replace("'", "''")
-            # Match if first name matches OR last name matches (more permissive)
-            filters.append(f"((p.first_name ILIKE '%{first_name}%' AND p.last_name ILIKE '%{last_name}%') OR (p.first_name ILIKE '%{first_name}%' OR p.last_name ILIKE '%{last_name}%'))")
+            # Use parameterized queries for safe matching
+            filters.append("((p.first_name ILIKE :first_name_pattern AND p.last_name ILIKE :last_name_pattern) OR (p.first_name ILIKE :first_name_pattern OR p.last_name ILIKE :last_name_pattern))")
+            params['first_name_pattern'] = f"%{name_parts[0]}%"
+            params['last_name_pattern'] = f"%{name_parts[-1]}%"
         else:
-            player_name_escaped = player_name.replace("'", "''")
-            filters.append(f"(p.first_name ILIKE '%{player_name_escaped}%' OR p.last_name ILIKE '%{player_name_escaped}%')")
+            params['player_name_pattern'] = f"%{player_name}%"
+            filters.append("(p.first_name ILIKE :player_name_pattern OR p.last_name ILIKE :player_name_pattern)")
     if special_event == 'christmas':
         filters.append("EXTRACT(MONTH FROM g.game_timestamp::timestamp) = 12 AND EXTRACT(DAY FROM g.game_timestamp::timestamp) = 25")
     if special_event == 'nye':
@@ -499,7 +534,10 @@ def search_box_scores_hybrid(cx, question, date=None, teams=None, season=None,
     # Get embedding for semantic search (use cache if available)
     query_emb = get_query_embedding(question)
     emb_str = "[" + ",".join(map(str, query_emb)) + "]"
+    params['top_k'] = int(top_k)
     
+    # For vector operations, we need to embed the vector string directly in SQL
+    # since SQLAlchemy's parameter binding doesn't work well with pgvector's ::vector cast
     sql = f"""
         SELECT pb.game_id, pb.person_id, 
                p.first_name || ' ' || p.last_name as player_name,
@@ -520,16 +558,16 @@ def search_box_scores_hybrid(cx, question, date=None, teams=None, season=None,
         JOIN teams t2 ON g.away_team_id = t2.team_id
         WHERE {where_clause} AND pb.embedding IS NOT NULL
         ORDER BY pb.embedding <=> '{emb_str}'::vector
-        LIMIT {top_k}
+        LIMIT :top_k
     """
     
-    results = cx.execute(text(sql))
+    results = cx.execute(text(sql), params)
     return results.fetchall()
 
 
 def get_top_scorer_for_game(cx, game_id):
     """Get the top scorer for a specific game"""
-    sql = f"""
+    sql = """
         SELECT pb.game_id, pb.person_id, 
                p.first_name || ' ' || p.last_name as player_name,
                t.abbreviation as team_abbr, pb.points,
@@ -538,18 +576,18 @@ def get_top_scorer_for_game(cx, game_id):
         FROM player_box_scores pb
         JOIN players p ON pb.person_id = p.player_id
         JOIN teams t ON pb.team_id = t.team_id
-        WHERE pb.game_id = {game_id}
+        WHERE pb.game_id = :game_id
         ORDER BY pb.points DESC
         LIMIT 1
     """
     
-    result = cx.execute(text(sql))
+    result = cx.execute(text(sql), {"game_id": int(game_id)})
     return result.fetchone()
 
 
 def get_triple_double_player(cx, game_id):
     """Get player with triple-double in a specific game"""
-    sql = f"""
+    sql = """
         SELECT pb.game_id, pb.person_id, 
                p.first_name || ' ' || p.last_name as player_name,
                t.abbreviation as team_abbr, 
@@ -559,14 +597,14 @@ def get_triple_double_player(cx, game_id):
         FROM player_box_scores pb
         JOIN players p ON pb.person_id = p.player_id
         JOIN teams t ON pb.team_id = t.team_id
-        WHERE pb.game_id = {game_id}
+        WHERE pb.game_id = :game_id
           AND pb.points >= 10
           AND (COALESCE(pb.offensive_reb, 0) + COALESCE(pb.defensive_reb, 0)) >= 10
           AND pb.assists >= 10
         LIMIT 1
     """
     
-    result = cx.execute(text(sql))
+    result = cx.execute(text(sql), {"game_id": int(game_id)})
     return result.fetchone()
 
 

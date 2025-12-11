@@ -42,7 +42,10 @@ def main():
             copy_sql = f"COPY {table_name} FROM STDIN WITH CSV"
             cursor.copy_expert(copy_sql, buffer)
             
-            # Get row count using cursor
+            # Get row count using cursor (table_name is from whitelist, safe)
+            # Validate table_name is in whitelist to prevent SQL injection
+            if table_name not in TABLES:
+                raise ValueError(f"Invalid table name: {table_name}")
             cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
             row_count = cursor.fetchone()[0]
             print(f"  ✓ Loaded {row_count:,} rows into {table_name}")
