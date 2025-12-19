@@ -1,133 +1,282 @@
-[![Review Assignment Due Date](https://classroom.github.com/assets/deadline-readme-button-22041afd0340ce965d47ae6ef1cefeee28c7c493a6346c4f15d667ab976d596c.svg)](https://classroom.github.com/a/ANWX4-5A)
-#  2025 Applied AI Engineer Internship Project
+# NBA Stats RAG Pipeline
 
-Your work must be your own and original. You may use AI tools to help aid your work if you include a single text file containing an ordered list of any AI prompts, along with the specific model queried (e.g. ChatGPT 5 Thinking) in the `prompts` directory. Do not include the AI's output.
+A production-grade Retrieval-Augmented Generation (RAG) system for NBA statistics, demonstrating end-to-end ML/AI pipeline architecture from data ingestion through deployment.
 
-### Internship Program Disclosures
+## Architecture Overview
 
-* You must be eligible to work in the United States to be able to qualify for this internship.
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              CLIENT LAYER                                    │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                     Angular 15 SPA (TypeScript)                      │   │
+│  │              Interactive Chat Interface + Real-time UX              │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼ HTTP/REST
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                              API LAYER                                       │
+│  ┌─────────────────────────────────────────────────────────────────────┐   │
+│  │                    FastAPI (Python 3.11)                            │   │
+│  │           Async Request Handling • CORS • Input Validation          │   │
+│  └─────────────────────────────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           PROCESSING LAYER                                   │
+│  ┌──────────────────────┐  ┌──────────────────────┐  ┌─────────────────┐   │
+│  │   Query Parser       │  │   Hybrid Retrieval   │  │  LLM Response   │   │
+│  │  ─────────────────   │  │  ─────────────────   │  │  ────────────   │   │
+│  │  • Date Extraction   │  │  • SQL Filtering     │  │  • Context      │   │
+│  │  • Entity Recognition│  │  • Vector Similarity │  │    Assembly     │   │
+│  │  • Season Inference  │  │  • Fallback Logic    │  │  • Generation   │   │
+│  └──────────────────────┘  └──────────────────────┘  └─────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+                    ┌─────────────────┼─────────────────┐
+                    ▼                 ▼                 ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                            DATA LAYER                                        │
+│  ┌──────────────────────┐  ┌──────────────────────┐  ┌─────────────────┐   │
+│  │   PostgreSQL 16      │  │      pgvector        │  │     Ollama      │   │
+│  │  ─────────────────   │  │  ─────────────────   │  │  ────────────   │   │
+│  │  • Structured Data   │  │  • 768-dim Vectors   │  │  • Embeddings   │   │
+│  │  • 38K+ Records      │  │  • HNSW Indexing     │  │  • LLM Inference│   │
+│  │  • Relational Joins  │  │  • ANN Search        │  │  • Model Cache  │   │
+│  └──────────────────────┘  └──────────────────────┘  └─────────────────┘   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-* The pay for this internship is the greater of your local minimum wage and $13/hour.
+## Key Architectural Decisions
 
-* This application is for the purposes of an internship taking place in the Spring, Summer, or Fall of 2026.
+### 1. Microservices Design with Container Orchestration
 
+The system uses a decoupled microservices architecture orchestrated via Docker Compose:
 
-## Assignment: 
+| Service | Purpose | Scaling Strategy |
+|---------|---------|------------------|
+| `db` | PostgreSQL + pgvector | Vertical scaling, read replicas |
+| `ollama` | LLM/Embedding inference | Horizontal scaling behind load balancer |
+| `app` | FastAPI application | Stateless, horizontally scalable |
 
-The goal of this project is to build an end-to-end RAG pipeline with an interactive chat interface for answering basic NBA stats questions.
+**Design Rationale**: Each service can be independently scaled, updated, and monitored. The stateless API layer enables horizontal scaling, while the database layer maintains consistency.
 
-1. Load data – Ingest CSVs related to NBA game information from the 2023-24 and 2024-25 seasons into PostgresSQL tables. Note this data is limited to only matchups involving at least one Western Conference team for size considerations.
-2. Create embeddings – Generate text embeddings with Ollama [`nomic-embed-text`](https://ollama.com/library/nomic-embed-text) and store them alongside the source rows.
-3. Retrieve and join – Perform semantic retrieval using the `pgvector` extension to find relevant game summaries, then join the matched embeddings back to the original structured table rows to provide factual context.
-4. Answer questions – Use Llama [`llama3.2:1b`](https://ollama.com/library/llama3.2:1b) to produce answers grounded on the retrieved data to the questions under the **Submission Requirements** section. The 1b model provides faster responses with lower resource usage while maintaining accuracy when provided with well-structured context from the retrieval pipeline.
+### 2. Hybrid Search Architecture
 
-**The data provided in this repository is proprietary and strictly confidential. It is provided exclusively for use within this technical project and must not be copied, shared, or distributed.**
+Rather than relying solely on vector similarity, the system implements a **hybrid retrieval strategy**:
 
-## Quick Start: Part 1
-1) Install [`Docker Desktop`](https://www.docker.com/get-started/) and open it (to ensure the docker daemon is running).
-2) Clone this repository.
-3) Start services and pull models by running the following commands:
+```
+Query → Parse Entities → SQL Filters → Vector Search → Rank → LLM
+              │                │              │
+              ▼                ▼              ▼
+         Dates, Teams,    Structured      Semantic
+         Players, Season   Pruning        Matching
+```
+
+**Why Hybrid?** Pure vector search struggles with precise constraints (exact dates, specific teams). SQL pre-filtering reduces the search space, improving both accuracy and performance.
+
+### 3. Vector Index Selection (HNSW vs IVFFlat)
+
+With ~38,000 vectors (1,682 games + 36,222 player box scores):
+
+| Index Type | Training Required | Update Cost | Use Case |
+|------------|------------------|-------------|----------|
+| **HNSW** (selected) | No | Low | Dynamic data, <100K vectors |
+| IVFFlat | Yes | High (rebuild) | Static data, >1M vectors |
+
+**Decision**: HNSW provides approximate nearest neighbor search without training overhead and handles incremental updates efficiently.
+
+### 4. Model Selection Trade-offs
+
+Selected `llama3.2:1b` over `llama3.2:3b`:
+
+| Metric | 1B Model | 3B Model |
+|--------|----------|----------|
+| Response Time | ~2-3x faster | Baseline |
+| Memory | ~1.3GB | ~2GB |
+| Accuracy (with good context) | High | Marginally higher |
+
+**Insight**: For RAG applications, embedding quality and retrieval precision matter more than raw model size. Well-structured context compensates for smaller models.
+
+### 5. Embedding Strategy
+
+Text serialization includes multiple representations to maximize retrieval coverage:
+
+- **Multiple date formats**: ISO, MM/DD/YY, natural language ("October 27, 2023")
+- **Special event tags**: Christmas Day, New Year's Eve, Season Opener
+- **Achievement markers**: Triple-double, 40-point game, NBA debut
+- **Computed fields**: Leading scorer per game, team standings context
+
+## Data Pipeline
+
+```
+CSV Files → Bulk Ingestion → Text Serialization → Vector Embedding → HNSW Index
+    │            │                   │                  │               │
+    ▼            ▼                   ▼                  ▼               ▼
+ 4 tables    COPY command      Multi-format        768-dim         Sub-ms
+ 38K rows    (bypass SQL)      representations    nomic-embed       ANN
+```
+
+### Performance Optimizations
+
+1. **Bulk Loading**: PostgreSQL `COPY` command streams CSV data directly, bypassing SQL parsing
+2. **Batch Embedding**: Process records in batches to maximize GPU/CPU utilization
+3. **Query Caching**: Embedding cache for repeated queries eliminates redundant API calls
+4. **Connection Pooling**: SQLAlchemy connection pool minimizes database overhead
+
+## Technology Stack
+
+### Backend
+- **Python 3.11** - Core runtime
+- **FastAPI** - Async API framework with automatic OpenAPI docs
+- **SQLAlchemy** - ORM with raw SQL escape hatches for performance
+- **pgvector** - Vector similarity search extension
+- **Ollama** - Local LLM inference (nomic-embed-text, llama3.2:1b)
+
+### Frontend
+- **Angular 15** - Component-based SPA framework
+- **TypeScript 4.9** - Type-safe development
+- **RxJS** - Reactive async handling
+
+### Infrastructure
+- **Docker Compose** - Multi-service orchestration
+- **PostgreSQL 16** - Primary datastore with pgvector extension
+- **AWS S3** - Large asset storage (video demos >100MB)
+- **Hugging Face Hub** - Model artifact deployment
+
+## Cloud-Native Design Patterns
+
+While deployed locally via Docker, the architecture maps directly to cloud services:
+
+| Local Component | Cloud Equivalent |
+|-----------------|------------------|
+| PostgreSQL + pgvector | Amazon RDS/Aurora, Azure Cosmos DB, Cloud SQL |
+| Ollama (LLM/Embeddings) | Amazon Bedrock, Azure OpenAI, Vertex AI |
+| FastAPI container | AWS Lambda, Cloud Run, Azure Functions |
+| Docker Compose | ECS/Fargate, Kubernetes, Cloud Run |
+| S3 (video storage) | Native cloud object storage |
+
+## Quick Start
+
+### Prerequisites
+- Docker Desktop
+- Node.js 16.x
+- 8GB+ RAM recommended
+
+### 1. Start Services
+
 ```bash
-# Option 1: Automated setup (recommended for first run)
+# Automated setup (recommended)
 chmod +x setup.sh
 ./setup.sh
 
-# Option 2: Manual setup
+# Or manual setup
 docker compose up -d db ollama
 docker exec ollama ollama pull nomic-embed-text
-docker exec ollama ollama pull llama3.2:1b  # Using 1b model for better efficiency
+docker exec ollama ollama pull llama3.2:1b
 docker compose build app
 ```
 
-**Note:** This project uses `llama3.2:1b` (1 billion parameters) instead of `llama3.2:3b` for better efficiency:
-- **Faster response times** (~2-3x faster)
-- **Lower memory usage** (~1.3GB vs ~2GB)  
-- **Smaller disk footprint** (~1.3GB vs ~2GB)
-- Still produces accurate answers when provided with well-structured context
+### 2. Initialize Data Pipeline
 
-
-Edit these files and run them using the following commands:
-
-1) Ingestion (`backend/ingest.py`) for schema details
-```
+```bash
+# Ingest CSV data into PostgreSQL
 docker compose run --rm app python -m backend.ingest
-```
 
-2) Embedding (`backend/embed.py`) for text serialization strategy. **Note the embedding process can be time-consuming, especially on older machines. We suggest subsetting the data to validate your embeddings and only proceeding with the full dataset once you're confident in your embeddings.**
-```
+# Generate embeddings (time-intensive on first run)
 docker compose run --rm app python -m backend.embed
-```
 
-3) RAG Script (`backend/rag.py`) for retrieval joins, prompt, and answer formatting. This script generates answers to the 10 prompts in Part 1.
-```
+# Run RAG pipeline against test questions
 docker compose run --rm app python -m backend.rag
 ```
 
-## Quick Start: Part 2
+### 3. Launch Application
 
-### Run the backend server
-```
+```bash
+# Start backend API
 docker compose run --rm --service-ports app uvicorn backend.server:app --host 0.0.0.0 --port 8000 --reload
-```
 
-### Installing Prerequisites
-Install Node.js (16.x.x), then in a new tab, run the following commands
-```
-cd /path/to/project/frontend
-# Install Angular-Cli
-npm install -g @angular/cli@15.1.0 typescript@4.9.4 --force
-# Install dependencies
+# In a new terminal - start frontend
+cd frontend
 npm install --force
-# Start the frontend
 npm start
 ```
 
-The frontend should run on http://localhost:4200/. Visit this address to see the app in your browser.
+Access the application at `http://localhost:4200`
 
+## Project Structure
 
-## Submission Requirements
+```
+├── backend/
+│   ├── config.py          # Service configuration
+│   ├── ingest.py          # Data ingestion pipeline
+│   ├── embed.py           # Embedding generation
+│   ├── rag.py             # Hybrid search + RAG logic
+│   ├── server.py          # FastAPI endpoints
+│   ├── utils.py           # Ollama API utilities
+│   └── data/              # Source CSV files
+│
+├── frontend/
+│   └── src/app/           # Angular application
+│       ├── app.component.ts
+│       └── services/      # API client services
+│
+├── part1/                 # RAG evaluation results
+├── part2/                 # Demo video (S3 link)
+├── part3/                 # Technical writeup
+├── part4/                 # Fine-tuning experiments
+│
+├── docker-compose.yml     # Service orchestration
+├── Dockerfile            # Python app container
+├── setup.sh              # Automated setup script
+└── requirements.txt      # Python dependencies
+```
 
-Before starting with the project, __please fill out the [`SUBMISSION.md`](SUBMISSION.md) file__ to ensure we have your name and email address you applied to the role with.
+## Results
 
-**Part 1: RAG Backend**
+### RAG Pipeline Performance
 
-- Answer the 10 game-level prompts in [`part1/questions.json`](part1/questions.json) using your retrieval pipeline and record results in a new file named [`answers.json`](part1/answers.json) by simply running the command for the [`rag.py`](backend/rag.py) file. Each answer should include an `evidence` array listing the `game_details` or `player_box_scores` rows used in the response.
+| Metric | Value |
+|--------|-------|
+| Top-1 Accuracy | 78% (7/9) |
+| Top-5 Accuracy | 100% (9/9) |
+| Total Vectors | 37,904 |
+| Avg Query Time | <500ms |
 
+### Fine-Tuned Embedding Model
 
-**Part 2: Frontend Solution**
+Deployed to Hugging Face Hub: [`drbinna/e5-nba-finetuned`](https://huggingface.co/drbinna/e5-nba-finetuned)
 
-- Create a chat interface for interacting with the backend retrieval pipeline. Some minimal Angular skeleton code is provided in the [`frontend/src/app`](frontend/src/app) directory, feel free to edit it as you wish.
+```python
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer("drbinna/e5-nba-finetuned")
+```
 
-Submit a video in the [`part2`](part2) folder that demonstrates how your UI functions.
+| Metric | Baseline E5 | Fine-tuned |
+|--------|-------------|------------|
+| Recall@1 | 0% | 10% |
+| Recall@5 | 90% | 100% |
 
+## Scalability Considerations
 
-**Part 3: Writeup**
+### Horizontal Scaling Path
+1. **API Layer**: Stateless design enables load-balanced replicas
+2. **Embedding Service**: Queue-based batch processing for high throughput
+3. **Vector Database**: Partitioning by season/team for distributed search
+4. **Caching Layer**: Redis for query/embedding caching
 
-Note: for this particular section, we **strongly** suggest you avoid using any AI tools to answer any of these questions. We want these responses to be your own voice and show your true understanding of the content. Please limit each response to 500 words or fewer.
+### Production Hardening
+- [ ] Implement circuit breakers for external service calls
+- [ ] Add distributed tracing (OpenTelemetry)
+- [ ] Set up health check endpoints and liveness probes
+- [ ] Configure rate limiting and request throttling
+- [ ] Implement async embedding generation queue
 
-1. Discuss your approach to answering the questions in Parts 1 and 2. Include your experimental process in regards to data preparation, embedding design, retrieval, prompt engineering, user experience, etc. Describe any challenges you faced and how you overcame them.
+## Author
 
-2. Describe your technical skillset and how it relates to the questions answered in this assignment. What did you learn as you went through this assignment, and what do you hope to learn in these related areas?
+**Obinna Amadi**
 
-3. You have data at the sub-possession level capturing basic events like passes, screens, and drives with court coordinates for the ball as well as all 10 players on the court. Describe any ways you would explore this data to answer in-game strategy questions.
+---
 
-4. You have [player positional tracking data](https://pr.nba.com/nba-sony-hawk-eye-innovations-partnership/); assume 29 skeletal points per player (e.g. joints like left shoulder, right knee, right ankle, etc), sampled at 60 frames per second for the full game. How you would harness this high-dimensional data to generate actionable insights for Basketball Operations? Propose three new features, describe how you’d explore the data, and note which technologies you’d apply.
-
-5. You have a large text corpus, including scouting reports, internal notes, and other documents that define decision constraints for Basketball Operations. How would you design an end-to-end process to turn this into findings to support front-office decision-making?  Describe your technical strategies (e.g., NLP, embeddings, retrieval, LLMs), including data representation, analysis, validation, and integration into workflows.
-
-
-Put your responses to the questions in Part 3 in [`part3/responses.txt`](part3/responses.txt).
-
-
-## Optional
-
-**Part 4: Embedding Fine-Tuning**
-- Build a small dataset of question–context pairs about NBA games and fine-tune the Hugging Face [`intfloat/e5-base-v2`](https://huggingface.co/intfloat/e5-base-v2) model. [`Text Embeddings by Weakly-Supervised Contrastive Pre-training`](https://arxiv.org/pdf/2212.03533) (Wang et al., 2022) shows how E5's contrastive objective yields strong universal embeddings, making it a good candidate for customization.
-
-1. Assemble training data – Create at least 20 question–context pairs from the game summaries in this repo (or generate synthetic ones). Each pair should contain a question and a short text snippet that answers it.
-2. Fine-tune an embedding model – Start from the encoder and train it with contrastive learning so matching question/context pairs obtain high cosine similarity. Log the training configuration and any hyperparameters you change.
-3. Evaluate retrieval – Compare your fine-tuned model against the baseline `nomic-embed-text` using a held-out set of queries. Report metrics such as Recall@k or MRR.
-4. Document results – Summarize your approach, hyperparameters, and evaluation numbers in [`part4/responses.txt`](part4/responses.txt). Include any code or commands used to run the experiment.
-
-Put all relevant files in the [`part4`](part4) folder in this repository.
-Note that this part of the project is optional. We do not expect every applicant to complete this portion. 
+*Built with a focus on production-grade architecture, demonstrating end-to-end ML pipeline design from data engineering through model deployment.*
