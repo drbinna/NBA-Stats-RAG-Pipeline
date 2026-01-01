@@ -332,15 +332,42 @@ $white: #FFFFFF;
   font-size: 14px;
   line-height: 1.6;
   margin: 0 0 1rem 0;
-  
-  &:last-child {
-    margin-bottom: 0;
-  }
-  
+
   strong {
     color: $thunder-blue;
     font-weight: 700;
   }
+}
+
+.question-categories {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.category {
+  background: $thunder-light-gray;
+  border-radius: 8px;
+  padding: 0.75rem;
+  border-left: 3px solid $thunder-blue;
+}
+
+.category-label {
+  display: block;
+  color: $thunder-dark-blue;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 0.25rem;
+}
+
+.category-example {
+  display: block;
+  color: $thunder-text-gray;
+  font-size: 13px;
+  font-style: italic;
 }
 
 // Chat Container
