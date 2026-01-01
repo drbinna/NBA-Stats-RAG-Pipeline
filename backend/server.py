@@ -453,3 +453,17 @@ Provide a clear, concise answer. Prioritize live/current data when answering que
 def health():
     """Health check endpoint."""
     return {"status": "ok"}
+
+
+@app.get("/api/debug")
+def debug():
+    """Debug endpoint to test database connection."""
+    import re
+    # Mask password in DSN for display
+    masked_dsn = re.sub(r':([^:@]+)@', ':***@', DB_DSN)
+    try:
+        with eng.connect() as cx:
+            result = cx.execute(text("SELECT COUNT(*) FROM teams")).scalar()
+            return {"db_dsn": masked_dsn, "db_status": "connected", "teams_count": result}
+    except Exception as e:
+        return {"db_dsn": masked_dsn, "db_status": "error", "error": str(e)}
