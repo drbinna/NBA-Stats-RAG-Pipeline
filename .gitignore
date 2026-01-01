@@ -13,6 +13,7 @@ ENV/
 node_modules/
 npm-debug.log
 yarn-error.log
+.angular/
 
 # IDEs
 .vscode/
@@ -37,7 +38,3 @@ Thumbs.db
 dist/
 build/
 *.egg-info/
-
-# Docker volumes (if needed)
-# pgdata/
-# ollamavol/

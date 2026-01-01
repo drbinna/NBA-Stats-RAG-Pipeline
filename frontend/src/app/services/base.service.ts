@@ -1,8 +1,9 @@
 import { HttpClient, HttpParams } from '@angular/common/http';
 import { Observable } from 'rxjs';
+import { environment } from '../../environments/environment';
 
 export class BaseService {
-  protected baseUrl = 'http://localhost:8000/api';
+  protected baseUrl = environment.apiUrl;
 
   constructor(protected http: HttpClient) {}
 
