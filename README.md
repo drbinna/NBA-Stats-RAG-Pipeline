@@ -59,11 +59,21 @@ An AI-powered NBA statistics assistant that answers questions about games, playe
 ### Prerequisites
 - Python 3.11+
 - Node.js 16+
-- PostgreSQL with pgvector extension
+- Docker (for PostgreSQL database)
 - Anthropic API key
 - balldontlie API key
 
-### 1. Environment Setup
+### 1. Clone and Install Dependencies
+
+```bash
+# Install Python dependencies
+pip install -r requirements.txt
+
+# Install frontend dependencies
+cd frontend && npm install && cd ..
+```
+
+### 2. Environment Setup
 
 Create a `.env` file in the project root:
 
@@ -73,29 +83,29 @@ BALLDONTLIE_API_KEY=your-balldontlie-key
 DB_DSN=postgresql://nba:nba@localhost:5432/nba
 ```
 
-### 2. Start Database
+### 3. Start Database
 
 ```bash
 docker compose up -d db
 ```
 
-### 3. Ingest Data
+### 4. Ingest Data
 
 ```bash
-python -m backend.ingest
+# Load environment variables and run ingestion
+export $(cat .env | xargs) && python -m backend.ingest
 ```
 
-### 4. Start Backend
+### 5. Start Backend
 
 ```bash
-uvicorn backend.server:app --host 0.0.0.0 --port 8000 --reload
+export $(cat .env | xargs) && uvicorn backend.server:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 5. Start Frontend
+### 6. Start Frontend (new terminal)
 
 ```bash
 cd frontend
-npm install
 npm start
 ```
 
@@ -120,9 +130,9 @@ curl -X POST http://localhost:8000/api/chat \
 
 ```json
 {
-  "answer": "Shai Gilgeous-Alexander scored 42 points on April 8, 2025...",
+  "answer": "On April 8, 2025, Shai Gilgeous-Alexander had an outstanding performance for the Oklahoma City Thunder. He scored 32 points, grabbed 5 rebounds, and dished out 8 assists in 36.2 minutes of play.",
   "evidence": [],
-  "used_live_data": true
+  "used_live_data": false
 }
 ```
 
@@ -157,8 +167,9 @@ curl -X POST http://localhost:8000/api/chat \
 ### Vercel (Frontend)
 
 1. Connect your GitHub repository to Vercel
-2. Set build command: `cd frontend && npm run build`
-3. Set output directory: `frontend/dist/frontend`
+2. Set root directory: `frontend`
+3. Build command: `npm run build`
+4. Output directory: `dist/app`
 
 ### Backend
 
