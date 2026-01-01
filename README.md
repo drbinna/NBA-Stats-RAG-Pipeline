@@ -185,4 +185,4 @@ Deploy to any Python-compatible platform (Railway, Render, Fly.io):
 
 ---
 
-*Built with Claude AI, FastAPI, and Angular*
+
