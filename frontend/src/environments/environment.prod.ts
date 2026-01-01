@@ -1,4 +1,4 @@
 export const environment = {
   production: true,
-  apiUrl: 'https://YOUR_BACKEND_URL/api'  // Update this after deploying backend
+  apiUrl: 'https://nba-stats-rag-pipeline-1.onrender.com/api'
 };
