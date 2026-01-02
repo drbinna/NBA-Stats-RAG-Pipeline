@@ -2,7 +2,7 @@
 
 An AI-powered NBA statistics assistant that answers questions about games, players, and performances using Claude AI and live data from the balldontlie API.
 
-**Live Demo:** [https://courtside.vercel.app](https://courtside.vercel.app) *(add your Vercel URL here)*
+**Live Demo:** [https://d6rzgcdmyfmb9.cloudfront.net](https://d6rzgcdmyfmb9.cloudfront.net)
 
 ## Features
 
@@ -16,20 +16,27 @@ An AI-powered NBA statistics assistant that answers questions about games, playe
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                     Angular Frontend                         │
-│              (Interactive Chat Interface)                    │
+│                   CloudFront CDN                             │
+│                  (Global Edge Caching)                       │
 └─────────────────────────────────────────────────────────────┘
                               │
-                              ▼ HTTP/REST
+                              ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                     FastAPI Backend                          │
+│                    S3 Static Hosting                         │
+│                   (Angular Frontend)                         │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼ HTTPS
+┌─────────────────────────────────────────────────────────────┐
+│              AWS Lightsail Container Service                 │
+│                    (FastAPI Backend)                         │
 │         Question Parsing • Data Retrieval • Response         │
 └─────────────────────────────────────────────────────────────┘
          │                    │                    │
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
 │   PostgreSQL    │  │  balldontlie    │  │   Claude API    │
-│   + pgvector    │  │      API        │  │   (Anthropic)   │
+│    (Render)     │  │      API        │  │   (Anthropic)   │
 │  ────────────   │  │  ────────────   │  │  ────────────   │
 │  Historical     │  │  Live Games     │  │  AI Response    │
 │  Box Scores     │  │  Recent Scores  │  │  Generation     │
@@ -53,13 +60,14 @@ An AI-powered NBA statistics assistant that answers questions about games, playe
 - **Database:** PostgreSQL 16 with pgvector
 - **AI:** Claude API (Anthropic)
 - **Live Data:** balldontlie.io API
+- **Hosting:** AWS (CloudFront, S3, Lightsail)
 
-## Quick Start
+## Local Development
 
 ### Prerequisites
 - Python 3.11+
 - Node.js 16+
-- Docker (for PostgreSQL database)
+- Docker (for local PostgreSQL)
 - Anthropic API key
 - balldontlie API key
 
@@ -92,21 +100,19 @@ docker compose up -d db
 ### 4. Ingest Data
 
 ```bash
-# Load environment variables and run ingestion
 export $(cat .env | xargs) && python -m backend.ingest
 ```
 
 ### 5. Start Backend
 
 ```bash
-export $(cat .env | xargs) && uvicorn backend.server:app --host 0.0.0.0 --port 8000 --reload
+export $(cat .env | xargs) && uvicorn backend.server:app --port 8000 --reload
 ```
 
 ### 6. Start Frontend (new terminal)
 
 ```bash
-cd frontend
-npm start
+cd frontend && npm start
 ```
 
 Access the application at `http://localhost:4200`
@@ -117,23 +123,14 @@ Access the application at `http://localhost:4200`
 |----------|--------|-------------|
 | `/api/chat` | POST | Submit a question, get AI response |
 | `/api/health` | GET | Health check |
+| `/api/debug` | GET | Database connection status |
 
 ### Example Request
 
 ```bash
-curl -X POST http://localhost:8000/api/chat \
+curl -X POST https://nba-stats-api.tqp3jyzqgttj2.us-west-2.cs.amazonlightsail.com/api/chat \
   -H "Content-Type: application/json" \
   -d '{"question": "How many points did SGA score on 4/8?"}'
-```
-
-### Example Response
-
-```json
-{
-  "answer": "On April 8, 2025, Shai Gilgeous-Alexander had an outstanding performance for the Oklahoma City Thunder. He scored 32 points, grabbed 5 rebounds, and dished out 8 assists in 36.2 minutes of play.",
-  "evidence": [],
-  "used_live_data": false
-}
 ```
 
 ## Database Schema
@@ -157,32 +154,48 @@ curl -X POST http://localhost:8000/api/chat \
 ├── frontend/
 │   └── src/app/        # Angular application
 │
-├── docker-compose.yml  # Database service
+├── Dockerfile          # Backend container image
+├── docker-compose.yml  # Local development database
 ├── requirements.txt    # Python dependencies
 └── .env               # API keys (not committed)
 ```
 
 ## Deployment
 
-### Vercel (Frontend)
+### AWS Architecture
 
-1. Connect your GitHub repository to Vercel
-2. Set root directory: `frontend`
-3. Build command: `npm run build`
-4. Output directory: `dist/app`
+| Component | Service | Details |
+|-----------|---------|---------|
+| Frontend | S3 + CloudFront | Static hosting with global CDN |
+| Backend | Lightsail Container | Docker container running FastAPI |
+| Database | Render PostgreSQL | Managed PostgreSQL instance |
 
-### Backend
+### Deploy Backend to Lightsail
 
-Deploy to any Python-compatible platform (Railway, Render, Fly.io):
+```bash
+# Build Docker image
+docker build -t nba-stats-backend .
 
-1. Set environment variables for API keys
-2. Connect to PostgreSQL database
-3. Run with: `uvicorn backend.server:app --host 0.0.0.0 --port $PORT`
+# Push to Lightsail
+aws lightsail push-container-image \
+  --service-name nba-stats-api \
+  --label nba-backend \
+  --image nba-stats-backend:latest
+```
+
+### Deploy Frontend to S3/CloudFront
+
+```bash
+# Build production bundle
+cd frontend && npm run build
+
+# Sync to S3
+aws s3 sync dist/app s3://your-bucket-name --delete
+
+# Invalidate CloudFront cache
+aws cloudfront create-invalidation --distribution-id YOUR_DIST_ID --paths "/*"
+```
 
 ## Author
 
 **Obinna Amadi**
-
----
-
-
