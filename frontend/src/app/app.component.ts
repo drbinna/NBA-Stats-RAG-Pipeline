@@ -1,5 +1,6 @@
 import { Component, OnDestroy, OnInit } from '@angular/core';
 import { ChatService } from './services/chat.service';
+import { environment } from '../environments/environment';
 
 interface EvidenceItem {
   table: string;
@@ -31,7 +32,7 @@ export class AppComponent implements OnInit, OnDestroy {
   private carouselTimer: any;
 
 
-  constructor(private chatService: ChatService) {}
+  constructor(private chatService: ChatService) { }
 
   ngOnInit(): void {
     this.startCarousel();
@@ -54,11 +55,11 @@ export class AppComponent implements OnInit, OnDestroy {
     }
     this.messages.push({ sender: 'user', text: input });
     this.userInput = '';
-    
+
     // Add loading message
     const loadingMessageIndex = this.messages.length;
     this.messages.push({ sender: 'loading', text: 'Thundering...', isLoading: true });
-    
+
     this.chatService.sendMessage(input).subscribe({
       next: (res: any) => {
         // Replace loading message with actual response
@@ -66,9 +67,14 @@ export class AppComponent implements OnInit, OnDestroy {
         const evidence = Array.isArray(res?.evidence) ? res.evidence : [];
         this.messages[loadingMessageIndex] = { sender: 'bot', text: reply, evidence };
       },
-      error: () => {
+      error: (err) => {
         // Replace loading message with error
-        this.messages[loadingMessageIndex] = { sender: 'bot', text: 'Error contacting server.' };
+        console.error('Chat Error:', err);
+        const url = environment.apiUrl;
+        this.messages[loadingMessageIndex] = {
+          sender: 'bot',
+          text: `Error contacting server at ${url}. Please verify the backend is running and the URL is correct.`
+        };
       }
     });
   }
