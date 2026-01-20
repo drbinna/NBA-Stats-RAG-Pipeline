@@ -2,7 +2,7 @@
 
 An AI-powered NBA statistics assistant that answers questions about games, players, and performances using Claude AI and live data from the balldontlie API.
 
-**Live Demo:** [https://d6rzgcdmyfmb9.cloudfront.net](https://d6rzgcdmyfmb9.cloudfront.net)
+**Live Demo:** [https://nba-stats-frontend.onrender.com](https://nba-stats-frontend.onrender.com)
 
 ## Features
 
@@ -16,19 +16,13 @@ An AI-powered NBA statistics assistant that answers questions about games, playe
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                   CloudFront CDN                             │
-│                  (Global Edge Caching)                       │
-└─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────┐
-│                    S3 Static Hosting                         │
+│                    Render Static Site                       │
 │                   (Angular Frontend)                         │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼ HTTPS
 ┌─────────────────────────────────────────────────────────────┐
-│              AWS Lightsail Container Service                 │
+│                   Render Web Service                        │
 │                    (FastAPI Backend)                         │
 │         Question Parsing • Data Retrieval • Response         │
 └─────────────────────────────────────────────────────────────┘
@@ -60,7 +54,7 @@ An AI-powered NBA statistics assistant that answers questions about games, playe
 - **Database:** PostgreSQL 16 with pgvector
 - **AI:** Claude API (Anthropic)
 - **Live Data:** balldontlie.io API
-- **Hosting:** AWS (CloudFront, S3, Lightsail)
+- **Hosting:** Render (Web Service, Static Site)
 
 ## Local Development
 
@@ -128,7 +122,7 @@ Access the application at `http://localhost:4200`
 ### Example Request
 
 ```bash
-curl -X POST https://nba-stats-api.tqp3jyzqgttj2.us-west-2.cs.amazonlightsail.com/api/chat \
+curl -X POST https://nba-stats-api.onrender.com/api/chat \
   -H "Content-Type: application/json" \
   -d '{"question": "How many points did SGA score on 4/8?"}'
 ```
@@ -170,31 +164,16 @@ curl -X POST https://nba-stats-api.tqp3jyzqgttj2.us-west-2.cs.amazonlightsail.co
 | Backend | Lightsail Container | Docker container running FastAPI |
 | Database | Render PostgreSQL | Managed PostgreSQL instance |
 
-### Deploy Backend to Lightsail
+### Deploy to Render
 
-```bash
-# Build Docker image
-docker build -t nba-stats-backend .
+The project includes a `render.yaml` file for Blueprint deployments.
 
-# Push to Lightsail
-aws lightsail push-container-image \
-  --service-name nba-stats-api \
-  --label nba-backend \
-  --image nba-stats-backend:latest
-```
-
-### Deploy Frontend to S3/CloudFront
-
-```bash
-# Build production bundle
-cd frontend && npm run build
-
-# Sync to S3
-aws s3 sync dist/app s3://your-bucket-name --delete
-
-# Invalidate CloudFront cache
-aws cloudfront create-invalidation --distribution-id YOUR_DIST_ID --paths "/*"
-```
+1. Connect your repository to Render.
+2. Render will automatically detect the `render.yaml` and prompt you to create the services.
+3. Configure the following Environment Variables in the Render Dashboard for the `nba-stats-api` service:
+   - `ANTHROPIC_API_KEY`
+   - `BALLDONTLIE_API_KEY`
+   - `DB_DSN`
 
 ## Author
 
