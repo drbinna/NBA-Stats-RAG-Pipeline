@@ -16,7 +16,8 @@ services:
         value: 8000
 
   # Frontend Static Site
-  - type: static_site
+  # Frontend Static Site
+  - type: web
     name: nba-stats-frontend
     env: static
     buildCommand: cd frontend && npm install && npm run build
