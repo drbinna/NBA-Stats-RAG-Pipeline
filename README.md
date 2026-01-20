@@ -122,7 +122,7 @@ Access the application at `http://localhost:4200`
 ### Example Request
 
 ```bash
-curl -X POST https://nba-stats-api.onrender.com/api/chat \
+curl -X POST https://nba-stats-api-ucz9.onrender.com/api/chat \
   -H "Content-Type: application/json" \
   -d '{"question": "How many points did SGA score on 4/8?"}'
 ```
