@@ -16,12 +16,12 @@ services:
         value: 8000
 
   # Frontend Static Site
-  # Frontend Static Site
+  # Frontend Static Site (Serving with Node/serve)
   - type: web
     name: nba-stats-frontend
-    env: static
+    env: node
     buildCommand: cd frontend && npm install && npm run build
-    staticPublishPath: frontend/dist/app
+    startCommand: cd frontend && npm run serve:prod
     envVars:
-      - key: NODE_VERSION
-        value: 16.20.0
+      - key: PORT
+        value: 4200
