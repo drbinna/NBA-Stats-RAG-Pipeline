@@ -1,8 +1,14 @@
 import os
 import re
 
-# Prioritize Vercel/Neon variables
-DB_DSN = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or os.getenv("DB_DSN")
+# Prioritize Vercel/Neon variables (including common prefixes like RAG_URL_)
+DB_DSN = (
+    os.getenv("RAG_URL_POSTGRES_URL") or 
+    os.getenv("RAG_URL_DATABASE_URL") or 
+    os.getenv("POSTGRES_URL") or 
+    os.getenv("DATABASE_URL") or 
+    os.getenv("DB_DSN")
+)
 
 # Diagnostic: Log all available keys (not values!)
 env_keys = sorted(os.environ.keys())
