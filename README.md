@@ -2,7 +2,7 @@
 
 An AI-powered NBA statistics assistant that answers questions about games, players, and performances using Claude AI and live data from the balldontlie API.
 
-**Live Demo:** [https://nba-stats-frontend.onrender.com](https://nba-stats-frontend.onrender.com)
+**Live Demo:** [https://nba-stats-rag-pipeline-zeab.vercel.app](https://nba-stats-rag-pipeline-zeab.vercel.app)
 
 ## Features
 
@@ -16,21 +16,20 @@ An AI-powered NBA statistics assistant that answers questions about games, playe
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    Render Static Site                       │
-│                   (Angular Frontend)                         │
+│                        Vercel                               │
+│                (Angular + Python Backend)                   │
 └─────────────────────────────────────────────────────────────┘
-                              │
-                              ▼ HTTPS
+                               │
+                               ▼ HTTPS
 ┌─────────────────────────────────────────────────────────────┐
-│                   Render Web Service                        │
-│                    (FastAPI Backend)                         │
-│         Question Parsing • Data Retrieval • Response         │
+│                    Neon Serverless DB                       │
+│                       (PostgreSQL)                          │
 └─────────────────────────────────────────────────────────────┘
          │                    │                    │
          ▼                    ▼                    ▼
 ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐
 │   PostgreSQL    │  │  balldontlie    │  │   Claude API    │
-│    (Render)     │  │      API        │  │   (Anthropic)   │
+│    (Neon)       │  │      API        │  │   (Anthropic)   │
 │  ────────────   │  │  ────────────   │  │  ────────────   │
 │  Historical     │  │  Live Games     │  │  AI Response    │
 │  Box Scores     │  │  Recent Scores  │  │  Generation     │
@@ -49,131 +48,22 @@ An AI-powered NBA statistics assistant that answers questions about games, playe
 
 ## Tech Stack
 
-- **Frontend:** Angular 15, TypeScript, SCSS
-- **Backend:** Python 3.11, FastAPI, SQLAlchemy
-- **Database:** PostgreSQL 16 with pgvector
+- **Frontend:** Angular 15
+- **Backend:** Python (FastAPI) on Vercel Functions
+- **Database:** Neon Serverless PostgreSQL
 - **AI:** Claude API (Anthropic)
 - **Live Data:** balldontlie.io API
-- **Hosting:** Render (Web Service, Static Site)
 
-## Local Development
+## Deployment with Vercel
 
-### Prerequisites
-- Python 3.11+
-- Node.js 16+
-- Docker (for local PostgreSQL)
-- Anthropic API key
-- balldontlie API key
+The project is optimized for zero-config deployment on Vercel.
 
-### 1. Clone and Install Dependencies
-
-```bash
-# Install Python dependencies
-pip install -r requirements.txt
-
-# Install frontend dependencies
-cd frontend && npm install && cd ..
-```
-
-### 2. Environment Setup
-
-Create a `.env` file in the project root:
-
-```bash
-ANTHROPIC_API_KEY=your-anthropic-key
-BALLDONTLIE_API_KEY=your-balldontlie-key
-DB_DSN=postgresql://nba:nba@localhost:5432/nba
-```
-
-### 3. Start Database
-
-```bash
-docker compose up -d db
-```
-
-### 4. Ingest Data
-
-```bash
-export $(cat .env | xargs) && python -m backend.ingest
-```
-
-### 5. Start Backend
-
-```bash
-export $(cat .env | xargs) && uvicorn backend.server:app --port 8000 --reload
-```
-
-### 6. Start Frontend (new terminal)
-
-```bash
-cd frontend && npm start
-```
-
-Access the application at `http://localhost:4200`
-
-## API Endpoints
-
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/api/chat` | POST | Submit a question, get AI response |
-| `/api/health` | GET | Health check |
-| `/api/debug` | GET | Database connection status |
-
-### Example Request
-
-```bash
-curl -X POST https://nba-stats-api-ucz9.onrender.com/api/chat \
-  -H "Content-Type: application/json" \
-  -d '{"question": "How many points did SGA score on 4/8?"}'
-```
-
-## Database Schema
-
-| Table | Records | Description |
-|-------|---------|-------------|
-| `players` | 683 | Player profiles |
-| `teams` | 30 | NBA teams |
-| `game_details` | 1,682 | Game scores and metadata |
-| `player_box_scores` | 36,222 | Individual player game stats |
-
-## Project Structure
-
-```
-├── backend/
-│   ├── config.py       # Environment configuration
-│   ├── ingest.py       # Data ingestion pipeline
-│   ├── server.py       # FastAPI endpoints + Claude integration
-│   └── data/           # Source CSV files
-│
-├── frontend/
-│   └── src/app/        # Angular application
-│
-├── Dockerfile          # Backend container image
-├── docker-compose.yml  # Local development database
-├── requirements.txt    # Python dependencies
-└── .env               # API keys (not committed)
-```
-
-## Deployment
-
-### AWS Architecture
-
-| Component | Service | Details |
-|-----------|---------|---------|
-| Frontend | S3 + CloudFront | Static hosting with global CDN |
-| Backend | Lightsail Container | Docker container running FastAPI |
-| Database | Render PostgreSQL | Managed PostgreSQL instance |
-
-### Deploy to Render
-
-The project includes a `render.yaml` file for Blueprint deployments.
-
-1. Connect your repository to Render.
-2. Render will automatically detect the `render.yaml` and prompt you to create the services.
-3. Configure the following Environment Variables in the Render Dashboard for the `nba-stats-api` service:
+1. Connect your repository to Vercel.
+2. Link a **Vercel Postgres (Neon)** database in the Storage tab.
+3. Configure the following Environment Variables in Vercel:
    - `ANTHROPIC_API_KEY`
    - `BALLDONTLIE_API_KEY`
-   - `DB_DSN`
+   - `POSTGRES_URL` (Automatically added when linking Neon)
 
 ## Author
 
