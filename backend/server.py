@@ -406,7 +406,12 @@ def answer(q: Q):
         print(f'Received question: {q.question}')
 
         if not eng:
-            return {"answer": "Error: Database is not configured. Please check Vercel environment variables.", "evidence": []}
+            import os
+            found_keys = [k for k in os.environ.keys() if "POSTGRES" in k or "DB" in k or "DATABASE" in k]
+            return {
+                "answer": f"Error: Database is not configured. Found keys: {', '.join(found_keys) if found_keys else 'NONE'}. Please ensure you've linked the Neon database to your Vercel project and REDEPLOYED.",
+                "evidence": []
+            }
         if not claude:
             return {"answer": "Error: AI Service is not configured. Please check ANTHROPIC_API_KEY.", "evidence": []}
 
