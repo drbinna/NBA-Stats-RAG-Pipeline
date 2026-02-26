@@ -13,10 +13,5 @@
             "source": "/(.*)",
             "destination": "/frontend/dist/app/index.html"
         }
-    ],
-    "functions": {
-        "api/index.py": {
-            "runtime": "@vercel/python"
-        }
-    }
+    ]
 }
