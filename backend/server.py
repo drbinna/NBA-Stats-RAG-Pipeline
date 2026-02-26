@@ -14,25 +14,24 @@ app = FastAPI()
 
 # Balldontlie API configuration
 BALLDONTLIE_BASE_URL = "https://api.balldontlie.io/v1"
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-eng = sa.create_engine(
-    DB_DSN, 
-    pool_pre_ping=True,
-    pool_recycle=300,
-    connect_args={
-        "sslmode": "require",
-        "connect_timeout": 10
-    }
-)
+# Initialize database engine if DSN is available
+eng = None
+if DB_DSN:
+    eng = sa.create_engine(
+        DB_DSN, 
+        pool_pre_ping=True,
+        pool_recycle=300,
+        connect_args={
+            "sslmode": "require",
+            "connect_timeout": 10
+        }
+    )
+else:
+    print("WARNING: Database engine NOT initialized due to missing DB_DSN")
 
 # Initialize Claude client
-claude = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+claude_key = os.getenv("ANTHROPIC_API_KEY")
+claude = anthropic.Anthropic(api_key=claude_key) if claude_key else None
 
 
 def get_balldontlie_headers():
@@ -406,6 +405,11 @@ def answer(q: Q):
     try:
         print(f'Received question: {q.question}')
 
+        if not eng:
+            return {"answer": "Error: Database is not configured. Please check Vercel environment variables.", "evidence": []}
+        if not claude:
+            return {"answer": "Error: AI Service is not configured. Please check ANTHROPIC_API_KEY.", "evidence": []}
+
         with eng.connect() as cx:
             # Get database context and relevant data
             db_context = get_database_context(cx)
@@ -421,9 +425,8 @@ def answer(q: Q):
 
         full_context = "\n\n".join(context_parts)
 
-        # Ask Claude
         message = claude.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-haiku-4-5-20251001",
             max_tokens=1024,
             messages=[
                 {
@@ -460,7 +463,11 @@ Provide a clear, concise answer. Prioritize live/current data when answering que
 @app.get("/api/health")
 def health():
     """Health check endpoint."""
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "db_configured": eng is not None,
+        "ai_configured": claude is not None
+    }
 
 
 @app.get("/api/debug")
