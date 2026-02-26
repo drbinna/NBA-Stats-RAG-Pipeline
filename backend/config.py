@@ -4,6 +4,10 @@ import re
 # Prioritize Vercel/Neon variables
 DB_DSN = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or os.getenv("DB_DSN")
 
+# Diagnostic: Log all available keys (not values!)
+env_keys = sorted(os.environ.keys())
+print(f"DIAGNOSTIC: Available env keys: {', '.join(env_keys)}")
+
 if DB_DSN:
     if DB_DSN.startswith("postgres://"):
         DB_DSN = DB_DSN.replace("postgres://", "postgresql://", 1)
