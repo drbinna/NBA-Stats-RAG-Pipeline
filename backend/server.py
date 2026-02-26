@@ -21,7 +21,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-eng = sa.create_engine(DB_DSN, pool_pre_ping=True)
+eng = sa.create_engine(
+    DB_DSN, 
+    pool_pre_ping=True,
+    pool_recycle=300,
+    connect_args={
+        "sslmode": "require",
+        "connect_timeout": 10
+    }
+)
 
 # Initialize Claude client
 claude = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
