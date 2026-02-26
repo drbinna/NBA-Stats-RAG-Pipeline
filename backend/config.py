@@ -4,8 +4,7 @@ import os
 DB_DSN = os.getenv("POSTGRES_URL") or os.getenv("DATABASE_URL") or os.getenv("DB_DSN")
 
 if not DB_DSN:
-    # Hardcoded fallback (Render) - only used if no environment variables are set
-    DB_DSN = "postgresql://ragchatbotbackend_user:XJS3FqDsbqYIK55Z0wPtpNCX3DWATiIO@dpg-d5b1ko3uibrs73c52sig-a.oregon-postgres.render.com/ragchatbotbackend"
+    raise ValueError("ERROR: No database connection string found in environment variables (POSTGRES_URL, DATABASE_URL, or DB_DSN). Please link your Neon database in the Vercel 'Storage' tab.")
 
 if DB_DSN.startswith("postgres://"):
     DB_DSN = DB_DSN.replace("postgres://", "postgresql://", 1)
