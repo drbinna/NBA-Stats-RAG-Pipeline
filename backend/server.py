@@ -122,8 +122,8 @@ def tool_search_players(name: str) -> list:
                    COUNT(pbs.game_id) AS games_in_db
             FROM players p
             LEFT JOIN player_box_scores pbs ON pbs.person_id = p.player_id
-            WHERE LOWER(p.first_name || ' ' || p.last_name) LIKE :q
-               OR LOWER(p.last_name) LIKE :q
+            WHERE TRANSLATE(LOWER(p.first_name || ' ' || p.last_name), 'čćšžđņéèêáàâíìóòôúùûüñöäß', 'ccszdneeeaaaiiooouuuunoas') LIKE :q
+               OR TRANSLATE(LOWER(p.last_name), 'čćšžđņéèêáàâíìóòôúùûüñöäß', 'ccszdneeeaaaiiooouuuunoas') LIKE :q
             GROUP BY p.player_id, p.first_name, p.last_name
             ORDER BY games_in_db DESC
             LIMIT 8
@@ -175,7 +175,7 @@ def tool_player_averages(player_id: int, date_from: Optional[str] = None, date_t
 
 def tool_top_performances(stat="points", n=10, date_from=None, date_to=None, team=None, triple_double=False) -> list:
     col = STAT_COLUMNS.get(stat, STAT_COLUMNS["points"])
-    where, params = [], {"lim": max(1, min(int(n or 10), 50))}
+    where, params = [], {"lim": max(1, min(int(n or 10), 25))}
     if date_from:
         where.append("gd.game_timestamp::date >= :df"); params["df"] = date_from
     if date_to:
@@ -218,6 +218,64 @@ def tool_game_results(team=None, game_date=None, date_from=None, date_to=None, n
     """
     with eng.connect() as cx:
         return rows_to_dicts(cx.execute(text(sql), params))
+
+
+TD_EXPR = """(
+            (CASE WHEN pbs.points >= 10 THEN 1 ELSE 0 END) +
+            (CASE WHEN pbs.assists >= 10 THEN 1 ELSE 0 END) +
+            (CASE WHEN pbs.offensive_reb + pbs.defensive_reb >= 10 THEN 1 ELSE 0 END) +
+            (CASE WHEN pbs.steals >= 10 THEN 1 ELSE 0 END) +
+            (CASE WHEN pbs.blocks >= 10 THEN 1 ELSE 0 END)) >= 3"""
+
+
+def _range_where(date_from, date_to, team, params):
+    where = []
+    if date_from:
+        where.append("gd.game_timestamp::date >= :df"); params["df"] = date_from
+    if date_to:
+        where.append("gd.game_timestamp::date <= :dt"); params["dt"] = date_to
+    if team:
+        where.append("t.abbreviation = :team"); params["team"] = team.upper()
+    return where
+
+
+def tool_triple_double_counts(date_from=None, date_to=None, team=None, n=10) -> list:
+    params = {"lim": max(1, min(int(n or 10), 30))}
+    where = [TD_EXPR] + _range_where(date_from, date_to, team, params)
+    with eng.connect() as cx:
+        return rows_to_dicts(cx.execute(text(f"""
+            SELECT p.first_name || ' ' || p.last_name AS player, t.abbreviation AS team,
+                   COUNT(*) AS triple_doubles,
+                   MIN(gd.game_timestamp)::date AS first, MAX(gd.game_timestamp)::date AS last
+            FROM player_box_scores pbs
+            JOIN players p ON pbs.person_id = p.player_id
+            JOIN teams t ON pbs.team_id = t.team_id
+            JOIN game_details gd ON pbs.game_id = gd.game_id
+            WHERE {' AND '.join(where)}
+            GROUP BY p.player_id, p.first_name, p.last_name, t.abbreviation
+            ORDER BY triple_doubles DESC LIMIT :lim
+        """), params))
+
+
+def tool_stat_leaders(stat="points", date_from=None, date_to=None, team=None, min_games=10, n=10) -> list:
+    col = STAT_COLUMNS.get(stat, STAT_COLUMNS["points"])
+    params = {"lim": max(1, min(int(n or 10), 30)), "ming": max(1, int(min_games or 10))}
+    where = _range_where(date_from, date_to, team, params)
+    with eng.connect() as cx:
+        return rows_to_dicts(cx.execute(text(f"""
+            SELECT p.first_name || ' ' || p.last_name AS player, t.abbreviation AS team,
+                   COUNT(*) AS games,
+                   ROUND(AVG({col})::numeric, 1) AS per_game,
+                   MAX({col}) AS best_game
+            FROM player_box_scores pbs
+            JOIN players p ON pbs.person_id = p.player_id
+            JOIN teams t ON pbs.team_id = t.team_id
+            JOIN game_details gd ON pbs.game_id = gd.game_id
+            {('WHERE ' + ' AND '.join(where)) if where else ''}
+            GROUP BY p.player_id, p.first_name, p.last_name, t.abbreviation
+            HAVING COUNT(*) >= :ming
+            ORDER BY per_game DESC LIMIT :lim
+        """), params))
 
 
 def tool_list_teams() -> list:
@@ -285,7 +343,7 @@ TOOLS = [
          "player_id": {"type": "integer"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}},
          "required": ["player_id"]}},
     {"name": "top_performances",
-     "description": "Highest single-game performances for a stat. Set triple_double=true to list triple-doubles. Optional date range and team filter.",
+     "description": "Highest single-game performances for a stat (individual game lines). Set triple_double=true to list individual triple-double games. For rankings by count or average, use triple_double_counts or stat_leaders instead.",
      "input_schema": {"type": "object", "properties": {
          "stat": {"type": "string", "enum": list(STAT_COLUMNS.keys())}, "n": {"type": "integer", "default": 10},
          "date_from": {"type": "string"}, "date_to": {"type": "string"}, "team": {"type": "string"},
@@ -295,6 +353,15 @@ TOOLS = [
      "input_schema": {"type": "object", "properties": {
          "team": {"type": "string"}, "game_date": {"type": "string"}, "date_from": {"type": "string"},
          "date_to": {"type": "string"}, "n": {"type": "integer", "default": 10}}}},
+    {"name": "triple_double_counts",
+     "description": "Players ranked by number of triple-doubles (historical database). Use for 'most triple-doubles'. Optional date range and team.",
+     "input_schema": {"type": "object", "properties": {
+         "date_from": {"type": "string"}, "date_to": {"type": "string"}, "team": {"type": "string"}, "n": {"type": "integer", "default": 10}}}},
+    {"name": "stat_leaders",
+     "description": "Players ranked by per-game average for a stat (historical database). Use for 'best scorer/rebounder/passer', 'who averages the most'. Optional date range, team filter, and minimum games.",
+     "input_schema": {"type": "object", "properties": {
+         "stat": {"type": "string", "enum": list(STAT_COLUMNS.keys())}, "date_from": {"type": "string"}, "date_to": {"type": "string"},
+         "team": {"type": "string"}, "min_games": {"type": "integer", "default": 10}, "n": {"type": "integer", "default": 10}}}},
     {"name": "list_teams",
      "description": "All team abbreviations with city and name. Use when unsure of an abbreviation.",
      "input_schema": {"type": "object", "properties": {}}},
@@ -314,6 +381,8 @@ TOOL_FUNCS = {
     "player_averages": lambda a: tool_player_averages(a["player_id"], a.get("date_from"), a.get("date_to")),
     "top_performances": lambda a: tool_top_performances(a.get("stat", "points"), a.get("n", 10), a.get("date_from"), a.get("date_to"), a.get("team"), a.get("triple_double", False)),
     "game_results": lambda a: tool_game_results(a.get("team"), a.get("game_date"), a.get("date_from"), a.get("date_to"), a.get("n", 10)),
+    "triple_double_counts": lambda a: tool_triple_double_counts(a.get("date_from"), a.get("date_to"), a.get("team"), a.get("n", 10)),
+    "stat_leaders": lambda a: tool_stat_leaders(a.get("stat", "points"), a.get("date_from"), a.get("date_to"), a.get("team"), a.get("min_games", 10), a.get("n", 10)),
     "list_teams": lambda a: tool_list_teams(),
     "live_games": lambda a: tool_live_games(a.get("game_date"), a.get("days_back", 0)),
     "live_player_season_averages": lambda a: tool_live_player_season_averages(a["name"], a.get("season")),
@@ -331,7 +400,8 @@ Rules:
 - Always resolve a player with search_players before calling a player stat tool. If several match, prefer the one with the most games_in_db unless the question implies otherwise.
 - Answer ONLY from tool results. Never estimate or recall statistics from memory.
 - If a tool returns no data or an error, stop and tell the user. Do not retry the same lookup through other tools.
-- A date without a year refers to the most recent season in the database unless it falls after the database ends, in which case use live data.
+- A date or holiday without a year (e.g. "4/8", "Christmas") means its most recent occurrence INSIDE the database range. Only use live data when the user clearly means the current or upcoming season.
+- For "most", "best", "who leads" questions, use the aggregate tools (stat_leaders, triple_double_counts, player_averages) rather than counting rows yourself.
 - Be concise: lead with the number asked for, then one line of context (opponent, result). Plain text, no markdown tables."""
 
 
@@ -341,7 +411,7 @@ def run_agent(question: str) -> dict:
     messages = [{"role": "user", "content": question}]
     calls = []
     for _ in range(MAX_TOOL_ROUNDS):
-        resp = llm.messages.create(model=MODEL_ID, max_tokens=800, system=system_prompt(), tools=TOOLS, messages=messages)
+        resp = llm.messages.create(model=MODEL_ID, max_tokens=2500, system=system_prompt(), tools=TOOLS, messages=messages)
         messages.append({"role": "assistant", "content": resp.content})
         if resp.stop_reason != "tool_use":
             answer = " ".join(b.text for b in resp.content if b.type == "text").strip()
