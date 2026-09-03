@@ -1,17 +1,11 @@
 {
     "version": 2,
+    "functions": {
+        "api/index.py": { "maxDuration": 30 }
+    },
     "rewrites": [
-        {
-            "source": "/api/(.*)",
-            "destination": "/api/index.py"
-        },
-        {
-            "source": "/(.*)",
-            "destination": "/frontend/dist/app/$1"
-        },
-        {
-            "source": "/(.*)",
-            "destination": "/frontend/dist/app/index.html"
-        }
+        { "source": "/api/(.*)", "destination": "/api/index.py" },
+        { "source": "/(.*)", "destination": "/frontend/dist/app/$1" },
+        { "source": "/(.*)", "destination": "/frontend/dist/app/index.html" }
     ]
 }

@@ -1,487 +1,394 @@
+"""
+Courtside — NBA stats assistant.
+
+Architecture: a tool-using agent. The model never sees a dump of the database;
+it calls typed, parameterized SQL tools (plus two live-data tools) and answers
+only from what they return. Runs on Fireworks AI via the Anthropic-compatible
+Messages API, so the model is a config value (MODEL_ID).
+"""
+import json
+import logging
+import traceback
+from datetime import date, datetime, timedelta
+from functools import lru_cache
+from typing import Optional
+
+import anthropic
+import requests
+import sqlalchemy as sa
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-import sqlalchemy as sa
 from sqlalchemy import text
-from backend.config import DB_DSN, BALLDONTLIE_API_KEY
-import anthropic
-import os
-import json
-import requests
-from datetime import datetime, timedelta
+
+from backend.config import DB_DSN, BALLDONTLIE_API_KEY, FIREWORKS_API_KEY, MODEL_ID
+
+log = logging.getLogger("courtside")
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Balldontlie API configuration
+eng = sa.create_engine(DB_DSN, pool_pre_ping=True) if DB_DSN else None
+llm = (
+    anthropic.Anthropic(api_key=FIREWORKS_API_KEY, base_url="https://api.fireworks.ai/inference")
+    if FIREWORKS_API_KEY else None
+)
+
 BALLDONTLIE_BASE_URL = "https://api.balldontlie.io/v1"
-# Initialize database engine if DSN is available
-eng = None
-if DB_DSN:
-    eng = sa.create_engine(
-        DB_DSN, 
-        pool_pre_ping=True,
-        pool_recycle=300,
-        connect_args={
-            "sslmode": "require",
-            "connect_timeout": 10
-        }
-    )
-else:
-    print("WARNING: Database engine NOT initialized due to missing DB_DSN")
+MAX_TOOL_ROUNDS = 6
 
-# Initialize Claude client
-claude_key = os.getenv("ANTHROPIC_API_KEY")
-claude = anthropic.Anthropic(api_key=claude_key) if claude_key else None
+# Nicknames a substring match on the players table won't catch.
+ALIASES = {
+    "sga": "Shai Gilgeous-Alexander", "shai": "Shai Gilgeous-Alexander",
+    "chet": "Chet Holmgren", "jdub": "Jalen Williams", "j-dub": "Jalen Williams",
+    "dort": "Luguentz Dort", "lu dort": "Luguentz Dort",
+    "joker": "Nikola Jokic", "jokic": "Nikola Jokic",
+    "bron": "LeBron James", "lebron": "LeBron James",
+    "steph": "Stephen Curry", "curry": "Stephen Curry",
+    "giannis": "Giannis Antetokounmpo", "luka": "Luka Doncic",
+    "ant": "Anthony Edwards", "wemby": "Victor Wembanyama",
+    "tatum": "Jayson Tatum", "kd": "Kevin Durant",
+}
 
-
-def get_balldontlie_headers():
-    """Get headers for balldontlie API requests."""
-    return {"Authorization": BALLDONTLIE_API_KEY}
+STAT_COLUMNS = {
+    "points": "pbs.points", "assists": "pbs.assists",
+    "rebounds": "(pbs.offensive_reb + pbs.defensive_reb)",
+    "steals": "pbs.steals", "blocks": "pbs.blocks", "turnovers": "pbs.turnovers",
+    "minutes": "(pbs.seconds / 60.0)",
+}
 
 
-def fetch_live_games(date_str: str = None) -> list:
-    """Fetch games from balldontlie API for a specific date."""
+# --------------------------------------------------------------------------- DB helpers
+
+def rows_to_dicts(result) -> list:
+    keys = list(result.keys())
+    out = []
+    for r in result.fetchall():
+        d = {}
+        for k, v in zip(keys, r):
+            if isinstance(v, (date, datetime)):
+                v = v.isoformat()
+            elif v is not None and not isinstance(v, (int, float, bool, str)) and hasattr(v, "__float__"):
+                v = float(v)
+            d[k] = v
+        out.append(d)
+    return out
+
+
+@lru_cache(maxsize=1)
+def db_date_range():
+    if not eng:
+        return None, None
+    with eng.connect() as cx:
+        r = cx.execute(text("SELECT MIN(game_timestamp)::date, MAX(game_timestamp)::date FROM game_details")).fetchone()
+    return (r[0].isoformat() if r[0] else None, r[1].isoformat() if r[1] else None)
+
+
+BOX_SELECT = """
+    SELECT p.player_id,
+           p.first_name || ' ' || p.last_name AS player,
+           t.abbreviation AS team,
+           gd.game_timestamp::date AS game_date,
+           CASE WHEN pbs.team_id = gd.home_team_id THEN at.abbreviation ELSE ht.abbreviation END AS opponent,
+           CASE WHEN pbs.team_id = gd.home_team_id THEN 'home' ELSE 'away' END AS venue,
+           pbs.points, pbs.assists,
+           pbs.offensive_reb + pbs.defensive_reb AS rebounds,
+           pbs.steals, pbs.blocks, pbs.turnovers,
+           ROUND((pbs.seconds / 60.0)::numeric, 1) AS minutes,
+           ht.abbreviation AS home_team, gd.home_points,
+           at.abbreviation AS away_team, gd.away_points
+    FROM player_box_scores pbs
+    JOIN players p ON pbs.person_id = p.player_id
+    JOIN teams t ON pbs.team_id = t.team_id
+    JOIN game_details gd ON pbs.game_id = gd.game_id
+    JOIN teams ht ON gd.home_team_id = ht.team_id
+    JOIN teams at ON gd.away_team_id = at.team_id
+"""
+
+
+def tool_search_players(name: str) -> list:
+    q = ALIASES.get(name.strip().lower(), name).strip().lower()
+    with eng.connect() as cx:
+        res = cx.execute(text("""
+            SELECT p.player_id,
+                   p.first_name || ' ' || p.last_name AS name,
+                   (SELECT t.abbreviation
+                      FROM player_box_scores b
+                      JOIN teams t ON b.team_id = t.team_id
+                      JOIN game_details g ON b.game_id = g.game_id
+                     WHERE b.person_id = p.player_id
+                     ORDER BY g.game_timestamp DESC LIMIT 1) AS latest_team,
+                   COUNT(pbs.game_id) AS games_in_db
+            FROM players p
+            LEFT JOIN player_box_scores pbs ON pbs.person_id = p.player_id
+            WHERE LOWER(p.first_name || ' ' || p.last_name) LIKE :q
+               OR LOWER(p.last_name) LIKE :q
+            GROUP BY p.player_id, p.first_name, p.last_name
+            ORDER BY games_in_db DESC
+            LIMIT 8
+        """), {"q": f"%{q}%"})
+        return rows_to_dicts(res)
+
+
+def tool_player_game_stats(player_id: int, game_date: Optional[str] = None,
+                           opponent: Optional[str] = None, limit: int = 5) -> list:
+    where = ["p.player_id = :pid"]
+    params = {"pid": player_id, "lim": max(1, min(int(limit or 5), 25))}
+    if game_date:
+        where.append("gd.game_timestamp::date = :d"); params["d"] = game_date
+    if opponent:
+        where.append("(ht.abbreviation = :opp OR at.abbreviation = :opp) AND t.abbreviation <> :opp")
+        params["opp"] = opponent.upper()
+    sql = BOX_SELECT + " WHERE " + " AND ".join(where) + " ORDER BY gd.game_timestamp DESC LIMIT :lim"
+    with eng.connect() as cx:
+        return rows_to_dicts(cx.execute(text(sql), params))
+
+
+def tool_player_averages(player_id: int, date_from: Optional[str] = None, date_to: Optional[str] = None) -> list:
+    where = ["pbs.person_id = :pid"]
+    params = {"pid": player_id}
+    if date_from:
+        where.append("gd.game_timestamp::date >= :df"); params["df"] = date_from
+    if date_to:
+        where.append("gd.game_timestamp::date <= :dt"); params["dt"] = date_to
+    with eng.connect() as cx:
+        res = cx.execute(text(f"""
+            SELECT p.first_name || ' ' || p.last_name AS player,
+                   COUNT(*) AS games,
+                   ROUND(AVG(pbs.points)::numeric, 1) AS ppg,
+                   ROUND(AVG(pbs.assists)::numeric, 1) AS apg,
+                   ROUND(AVG(pbs.offensive_reb + pbs.defensive_reb)::numeric, 1) AS rpg,
+                   ROUND(AVG(pbs.steals)::numeric, 1) AS spg,
+                   ROUND(AVG(pbs.blocks)::numeric, 1) AS bpg,
+                   MAX(pbs.points) AS high_points,
+                   MIN(gd.game_timestamp)::date AS first_game,
+                   MAX(gd.game_timestamp)::date AS last_game
+            FROM player_box_scores pbs
+            JOIN players p ON pbs.person_id = p.player_id
+            JOIN game_details gd ON pbs.game_id = gd.game_id
+            WHERE {' AND '.join(where)}
+            GROUP BY p.player_id, p.first_name, p.last_name
+        """), params)
+        return rows_to_dicts(res)
+
+
+def tool_top_performances(stat="points", n=10, date_from=None, date_to=None, team=None, triple_double=False) -> list:
+    col = STAT_COLUMNS.get(stat, STAT_COLUMNS["points"])
+    where, params = [], {"lim": max(1, min(int(n or 10), 50))}
+    if date_from:
+        where.append("gd.game_timestamp::date >= :df"); params["df"] = date_from
+    if date_to:
+        where.append("gd.game_timestamp::date <= :dt"); params["dt"] = date_to
+    if team:
+        where.append("t.abbreviation = :team"); params["team"] = team.upper()
+    if triple_double:
+        where.append("""(
+            (CASE WHEN pbs.points >= 10 THEN 1 ELSE 0 END) +
+            (CASE WHEN pbs.assists >= 10 THEN 1 ELSE 0 END) +
+            (CASE WHEN pbs.offensive_reb + pbs.defensive_reb >= 10 THEN 1 ELSE 0 END) +
+            (CASE WHEN pbs.steals >= 10 THEN 1 ELSE 0 END) +
+            (CASE WHEN pbs.blocks >= 10 THEN 1 ELSE 0 END)) >= 3""")
+    sql = BOX_SELECT + (" WHERE " + " AND ".join(where) if where else "") + \
+        f" ORDER BY {col} DESC, gd.game_timestamp DESC LIMIT :lim"
+    with eng.connect() as cx:
+        return rows_to_dicts(cx.execute(text(sql), params))
+
+
+def tool_game_results(team=None, game_date=None, date_from=None, date_to=None, n=10) -> list:
+    where, params = [], {"lim": max(1, min(int(n or 10), 50))}
+    if team:
+        where.append("(ht.abbreviation = :team OR at.abbreviation = :team)"); params["team"] = team.upper()
+    if game_date:
+        where.append("gd.game_timestamp::date = :d"); params["d"] = game_date
+    if date_from:
+        where.append("gd.game_timestamp::date >= :df"); params["df"] = date_from
+    if date_to:
+        where.append("gd.game_timestamp::date <= :dt"); params["dt"] = date_to
+    sql = f"""
+        SELECT gd.game_id, gd.game_timestamp::date AS game_date,
+               ht.abbreviation AS home_team, gd.home_points,
+               at.abbreviation AS away_team, gd.away_points,
+               CASE WHEN gd.home_points > gd.away_points THEN ht.abbreviation ELSE at.abbreviation END AS winner
+        FROM game_details gd
+        JOIN teams ht ON gd.home_team_id = ht.team_id
+        JOIN teams at ON gd.away_team_id = at.team_id
+        {('WHERE ' + ' AND '.join(where)) if where else ''}
+        ORDER BY gd.game_timestamp DESC LIMIT :lim
+    """
+    with eng.connect() as cx:
+        return rows_to_dicts(cx.execute(text(sql), params))
+
+
+def tool_list_teams() -> list:
+    with eng.connect() as cx:
+        return rows_to_dicts(cx.execute(text("SELECT abbreviation, city, name FROM teams ORDER BY abbreviation")))
+
+
+# --------------------------------------------------------------------------- live data
+
+class LiveDataUnavailable(Exception):
+    pass
+
+
+def _bdl(path: str, params: dict) -> list:
     if not BALLDONTLIE_API_KEY:
-        return []
-    try:
-        if not date_str:
-            date_str = datetime.now().strftime("%Y-%m-%d")
-        url = f"{BALLDONTLIE_BASE_URL}/games"
-        params = {"dates[]": date_str}
-        resp = requests.get(url, headers=get_balldontlie_headers(), params=params, timeout=10)
-        resp.raise_for_status()
-        return resp.json().get("data", [])
-    except Exception as e:
-        print(f"Error fetching games: {e}")
-        return []
+        raise LiveDataUnavailable("live data is not configured")
+    r = requests.get(f"{BALLDONTLIE_BASE_URL}/{path}", headers={"Authorization": BALLDONTLIE_API_KEY},
+                     params=params, timeout=10)
+    r.raise_for_status()
+    return r.json().get("data", [])
 
 
-def fetch_recent_games(days: int = 7) -> list:
-    """Fetch games from the last N days."""
-    all_games = []
-    for i in range(days):
-        date = (datetime.now() - timedelta(days=i)).strftime("%Y-%m-%d")
-        games = fetch_live_games(date)
-        all_games.extend(games)
-    return all_games
+def tool_live_games(game_date=None, days_back=0) -> list:
+    end = datetime.strptime(game_date, "%Y-%m-%d").date() if game_date else date.today()
+    out = []
+    for i in range(max(0, min(int(days_back or 0), 14)) + 1):
+        d = (end - timedelta(days=i)).isoformat()
+        for g in _bdl("games", {"dates[]": d}):
+            out.append({
+                "date": g.get("date"), "status": g.get("status"),
+                "home_team": g.get("home_team", {}).get("abbreviation"), "home_score": g.get("home_team_score"),
+                "visitor_team": g.get("visitor_team", {}).get("abbreviation"), "visitor_score": g.get("visitor_team_score"),
+            })
+    return out
 
 
-def fetch_player_stats(player_id: int, season: int = None) -> dict:
-    """Fetch season averages for a player."""
-    if not BALLDONTLIE_API_KEY:
-        return {}
-    try:
-        if not season:
-            season = datetime.now().year if datetime.now().month > 9 else datetime.now().year - 1
-        url = f"{BALLDONTLIE_BASE_URL}/season_averages"
-        params = {"season": season, "player_ids[]": player_id}
-        resp = requests.get(url, headers=get_balldontlie_headers(), params=params, timeout=10)
-        resp.raise_for_status()
-        data = resp.json().get("data", [])
-        return data[0] if data else {}
-    except Exception as e:
-        print(f"Error fetching player stats: {e}")
-        return {}
+def tool_live_player_season_averages(name: str, season=None) -> dict:
+    name = ALIASES.get(name.strip().lower(), name)
+    players = _bdl("players", {"search": name.split()[-1], "per_page": 5})
+    if not players:
+        return {"error": "player not found in live API"}
+    p = players[0]
+    if not season:
+        now = date.today()
+        season = now.year if now.month >= 10 else now.year - 1
+    avg = _bdl("season_averages", {"season": season, "player_ids[]": p["id"]})
+    return {"player": f"{p['first_name']} {p['last_name']}", "team": (p.get("team") or {}).get("abbreviation"),
+            "season": season, "averages": avg[0] if avg else None}
 
 
-def search_players(query: str) -> list:
-    """Search for players by name."""
-    if not BALLDONTLIE_API_KEY:
-        return []
-    try:
-        url = f"{BALLDONTLIE_BASE_URL}/players"
-        params = {"search": query, "per_page": 10}
-        resp = requests.get(url, headers=get_balldontlie_headers(), params=params, timeout=10)
-        resp.raise_for_status()
-        return resp.json().get("data", [])
-    except Exception as e:
-        print(f"Error searching players: {e}")
-        return []
+# --------------------------------------------------------------------------- tool registry
+
+TOOLS = [
+    {"name": "search_players",
+     "description": "Resolve a player name or nickname (e.g. 'SGA', 'Chet', 'Jokic') to a player_id. Always call this before any player stat tool.",
+     "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
+    {"name": "player_game_stats",
+     "description": "Box score lines for one player from the historical database. Filter by exact game_date (YYYY-MM-DD) and/or opponent team abbreviation; otherwise returns the most recent games.",
+     "input_schema": {"type": "object", "properties": {
+         "player_id": {"type": "integer"}, "game_date": {"type": "string"}, "opponent": {"type": "string"},
+         "limit": {"type": "integer", "default": 5}}, "required": ["player_id"]}},
+    {"name": "player_averages",
+     "description": "Per-game averages and highs for a player over an optional date range (historical database).",
+     "input_schema": {"type": "object", "properties": {
+         "player_id": {"type": "integer"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}},
+         "required": ["player_id"]}},
+    {"name": "top_performances",
+     "description": "Highest single-game performances for a stat. Set triple_double=true to list triple-doubles. Optional date range and team filter.",
+     "input_schema": {"type": "object", "properties": {
+         "stat": {"type": "string", "enum": list(STAT_COLUMNS.keys())}, "n": {"type": "integer", "default": 10},
+         "date_from": {"type": "string"}, "date_to": {"type": "string"}, "team": {"type": "string"},
+         "triple_double": {"type": "boolean", "default": False}}}},
+    {"name": "game_results",
+     "description": "Final scores from the historical database, filtered by team abbreviation, exact date, or date range. Use for 'who won', 'what games happened on', and schedules within the database range.",
+     "input_schema": {"type": "object", "properties": {
+         "team": {"type": "string"}, "game_date": {"type": "string"}, "date_from": {"type": "string"},
+         "date_to": {"type": "string"}, "n": {"type": "integer", "default": 10}}}},
+    {"name": "list_teams",
+     "description": "All team abbreviations with city and name. Use when unsure of an abbreviation.",
+     "input_schema": {"type": "object", "properties": {}}},
+    {"name": "live_games",
+     "description": "Live/recent scores from the balldontlie API. Use ONLY for dates after the historical database ends. game_date defaults to today; days_back looks further back.",
+     "input_schema": {"type": "object", "properties": {
+         "game_date": {"type": "string"}, "days_back": {"type": "integer", "default": 0}}}},
+    {"name": "live_player_season_averages",
+     "description": "Current-season averages for a player from the live API. Use for seasons after the historical database ends.",
+     "input_schema": {"type": "object", "properties": {
+         "name": {"type": "string"}, "season": {"type": "integer"}}, "required": ["name"]}},
+]
+
+TOOL_FUNCS = {
+    "search_players": lambda a: tool_search_players(a["name"]),
+    "player_game_stats": lambda a: tool_player_game_stats(a["player_id"], a.get("game_date"), a.get("opponent"), a.get("limit", 5)),
+    "player_averages": lambda a: tool_player_averages(a["player_id"], a.get("date_from"), a.get("date_to")),
+    "top_performances": lambda a: tool_top_performances(a.get("stat", "points"), a.get("n", 10), a.get("date_from"), a.get("date_to"), a.get("team"), a.get("triple_double", False)),
+    "game_results": lambda a: tool_game_results(a.get("team"), a.get("game_date"), a.get("date_from"), a.get("date_to"), a.get("n", 10)),
+    "list_teams": lambda a: tool_list_teams(),
+    "live_games": lambda a: tool_live_games(a.get("game_date"), a.get("days_back", 0)),
+    "live_player_season_averages": lambda a: tool_live_player_season_averages(a["name"], a.get("season")),
+}
 
 
-def fetch_box_scores(game_id: int) -> list:
-    """Fetch box score stats for a game."""
-    if not BALLDONTLIE_API_KEY:
-        return []
-    try:
-        url = f"{BALLDONTLIE_BASE_URL}/stats"
-        params = {"game_ids[]": game_id, "per_page": 50}
-        resp = requests.get(url, headers=get_balldontlie_headers(), params=params, timeout=10)
-        resp.raise_for_status()
-        return resp.json().get("data", [])
-    except Exception as e:
-        print(f"Error fetching box scores: {e}")
-        return []
+def system_prompt() -> str:
+    lo, hi = db_date_range()
+    return f"""You are Courtside, an NBA statistics assistant with a focus on the Oklahoma City Thunder.
+
+Today is {date.today().isoformat()}.
+The historical database covers games from {lo or 'unknown'} to {hi or 'unknown'}. For anything after {hi or 'that range'}, use the live_* tools.
+
+Rules:
+- Always resolve a player with search_players before calling a player stat tool. If several match, prefer the one with the most games_in_db unless the question implies otherwise.
+- Answer ONLY from tool results. Never estimate or recall statistics from memory.
+- If a tool returns no data or an error, stop and tell the user. Do not retry the same lookup through other tools.
+- A date without a year refers to the most recent season in the database unless it falls after the database ends, in which case use live data.
+- Be concise: lead with the number asked for, then one line of context (opponent, result). Plain text, no markdown tables."""
 
 
-def query_player_game_from_db(player_search: str, date_str: str) -> str:
-    """Query our local database for a player's game stats on a specific date."""
-    try:
-        with eng.connect() as cx:
-            # Search for player by name (partial match)
-            result = cx.execute(text("""
-                SELECT p.first_name || ' ' || p.last_name as player_name,
-                       t.abbreviation as team,
-                       pbs.points,
-                       pbs.assists,
-                       pbs.offensive_reb + pbs.defensive_reb as rebounds,
-                       pbs.steals,
-                       pbs.blocks,
-                       pbs.turnovers,
-                       ROUND((pbs.seconds / 60.0)::numeric, 1) as minutes,
-                       gd.game_timestamp::date as game_date,
-                       ht.abbreviation as home_team,
-                       at.abbreviation as away_team,
-                       gd.home_points,
-                       gd.away_points
-                FROM player_box_scores pbs
-                JOIN players p ON pbs.person_id = p.player_id
-                JOIN teams t ON pbs.team_id = t.team_id
-                JOIN game_details gd ON pbs.game_id = gd.game_id
-                JOIN teams ht ON gd.home_team_id = ht.team_id
-                JOIN teams at ON gd.away_team_id = at.team_id
-                WHERE (LOWER(p.first_name) LIKE :search
-                       OR LOWER(p.last_name) LIKE :search
-                       OR LOWER(p.first_name || ' ' || p.last_name) LIKE :search)
-                  AND gd.game_timestamp::date = :game_date
-            """), {"search": f"%{player_search.lower()}%", "game_date": date_str}).fetchall()
+# --------------------------------------------------------------------------- agent loop
 
-            if result:
-                lines = []
-                for r in result:
-                    lines.append(
-                        f"DATABASE STATS - {r[0]} ({r[1]}) on {r[9]}:\n"
-                        f"  Points: {r[2]}, Rebounds: {r[4]}, Assists: {r[3]}, "
-                        f"Steals: {r[5]}, Blocks: {r[6]}, Turnovers: {r[7]}, Minutes: {r[8]}\n"
-                        f"  Game: {r[11]} ({r[13]}) @ {r[10]} ({r[12]})"
-                    )
-                return "\n".join(lines)
-    except Exception as e:
-        print(f"Error querying player game from DB: {e}")
-    return ""
+def run_agent(question: str) -> dict:
+    messages = [{"role": "user", "content": question}]
+    calls = []
+    for _ in range(MAX_TOOL_ROUNDS):
+        resp = llm.messages.create(model=MODEL_ID, max_tokens=800, system=system_prompt(), tools=TOOLS, messages=messages)
+        messages.append({"role": "assistant", "content": resp.content})
+        if resp.stop_reason != "tool_use":
+            answer = " ".join(b.text for b in resp.content if b.type == "text").strip()
+            return {"answer": answer or "I couldn't produce an answer for that.", "evidence": calls}
+        results = []
+        for block in resp.content:
+            if block.type != "tool_use":
+                continue
+            try:
+                out = TOOL_FUNCS[block.name](block.input or {})
+            except LiveDataUnavailable:
+                out = {"error": "Live data is unavailable right now. Tell the user this date is outside the historical database and live scores are not available."}
+            except Exception:
+                log.exception("tool %s failed", block.name)
+                out = {"error": f"{block.name} failed; try a different query"}
+            calls.append({"tool": block.name, "input": block.input})
+            results.append({"type": "tool_result", "tool_use_id": block.id, "content": json.dumps(out, default=str)[:12000]})
+        messages.append({"role": "user", "content": results})
+    # Round limit hit: force a final answer from whatever was gathered.
+    messages.append({"role": "user", "content": "Stop using tools. Answer now from the results above, or say what you could not find."})
+    resp = llm.messages.create(model=MODEL_ID, max_tokens=400, system=system_prompt(), messages=messages)
+    answer = " ".join(b.text for b in resp.content if b.type == "text").strip()
+    return {"answer": answer or "I couldn't find that in the available data.", "evidence": calls}
 
 
-def parse_date_from_question(question: str) -> str:
-    """Try to parse a date from the question."""
-    import re
-    ql = question.lower()
-
-    # Match patterns like 4/9, 04/09, 4-9, etc.
-    date_patterns = [
-        r'(\d{1,2})[/-](\d{1,2})',  # 4/9, 04/09, 4-9
-        r'(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})',  # 4/9/24, 04/09/2024
-    ]
-
-    for pattern in date_patterns:
-        match = re.search(pattern, question)
-        if match:
-            groups = match.groups()
-            month = int(groups[0])
-            day = int(groups[1])
-            if len(groups) == 3:
-                year = int(groups[2])
-                if year < 100:
-                    year += 2000
-            else:
-                # Assume current season
-                year = datetime.now().year if datetime.now().month > 9 else datetime.now().year
-                # If month is later in year, might be previous year
-                if month > datetime.now().month:
-                    year -= 1
-
-            return f"{year}-{month:02d}-{day:02d}"
-
-    return None
-
-
-def get_live_data_context(question: str) -> str:
-    """Fetch live data from balldontlie based on the question."""
-    ql = question.lower()
-    results = []
-
-    # Check for specific player + date questions
-    date_str = parse_date_from_question(question)
-    if date_str:
-        # Common player name mappings
-        player_aliases = {
-            'sga': 'Gilgeous-Alexander',
-            'lebron': 'LeBron',
-            'curry': 'Curry',
-            'steph': 'Curry',
-            'durant': 'Durant',
-            'kd': 'Durant',
-            'giannis': 'Antetokounmpo',
-            'jokic': 'Jokic',
-            'luka': 'Doncic',
-            'tatum': 'Tatum',
-            'embiid': 'Embiid',
-            'ant': 'Edwards',
-            'edwards': 'Edwards',
-            'morant': 'Morant',
-            'ja': 'Morant',
-        }
-
-        for alias, name in player_aliases.items():
-            if alias in ql:
-                # Query our local database for player stats on that date
-                db_stats = query_player_game_from_db(name, date_str)
-                if db_stats:
-                    results.append(db_stats)
-                break
-
-    # Check for today/recent/current game questions
-    if any(word in ql for word in ['today', 'tonight', 'last night', 'yesterday', 'recent', 'latest', 'current']):
-        # Fetch recent games
-        games = fetch_recent_games(days=3)
-        if games:
-            game_lines = []
-            for g in games[:15]:  # Limit to 15 games
-                home = g.get('home_team', {})
-                away = g.get('visitor_team', {})
-                game_lines.append(
-                    f"- {g.get('date', 'N/A')[:10]}: {away.get('full_name', 'N/A')} ({g.get('visitor_team_score', 0)}) @ "
-                    f"{home.get('full_name', 'N/A')} ({g.get('home_team_score', 0)}) - Status: {g.get('status', 'N/A')}"
-                )
-            results.append("LIVE/RECENT GAMES:\n" + "\n".join(game_lines))
-
-    # Check for specific player mentions - search for player and get stats
-    player_keywords = ['lebron', 'curry', 'durant', 'giannis', 'jokic', 'luka', 'tatum', 'embiid', 'morant', 'edwards']
-    for player in player_keywords:
-        if player in ql:
-            players = search_players(player)
-            if players:
-                p = players[0]
-                stats = fetch_player_stats(p['id'])
-                if stats:
-                    results.append(
-                        f"LIVE STATS - {p.get('first_name', '')} {p.get('last_name', '')} ({p.get('team', {}).get('abbreviation', 'N/A')}):\n"
-                        f"  Games: {stats.get('games_played', 0)}, PPG: {stats.get('pts', 0)}, "
-                        f"RPG: {stats.get('reb', 0)}, APG: {stats.get('ast', 0)}, "
-                        f"FG%: {stats.get('fg_pct', 0)*100:.1f}%, 3P%: {stats.get('fg3_pct', 0)*100:.1f}%"
-                    )
-                break
-
-    return "\n\n".join(results) if results else ""
-
+# --------------------------------------------------------------------------- HTTP
 
 class Q(BaseModel):
     question: str
 
 
-def get_database_context(cx) -> str:
-    """Get a summary of available data for Claude's context."""
-    # Get sample data to help Claude understand the schema
-    teams = cx.execute(text("SELECT abbreviation, city, name FROM teams LIMIT 10")).fetchall()
-
-    # Get date range
-    date_range = cx.execute(text("""
-        SELECT MIN(game_timestamp)::date as min_date,
-               MAX(game_timestamp)::date as max_date,
-               COUNT(*) as game_count
-        FROM game_details
-    """)).fetchone()
-
-    # Get sample players
-    players = cx.execute(text("""
-        SELECT DISTINCT p.first_name || ' ' || p.last_name as name
-        FROM players p
-        JOIN player_box_scores pbs ON p.player_id = pbs.person_id
-        ORDER BY name
-        LIMIT 20
-    """)).fetchall()
-
-    return f"""
-NBA Database Context:
-- Games from {date_range[0]} to {date_range[1]} ({date_range[2]} games)
-- Teams: {', '.join([f"{t[0]} ({t[1]} {t[2]})" for t in teams])}...
-- Sample players: {', '.join([p[0] for p in players])}...
-
-Tables:
-- game_details: game_id, game_timestamp, home_team_id, away_team_id, home_points, away_points, season
-- player_box_scores: game_id, person_id, team_id, points, assists, offensive_reb, defensive_reb, steals, blocks, turnovers, minutes
-- players: player_id, first_name, last_name, draft_year
-- teams: team_id, abbreviation, city, name
-"""
-
-
-def query_relevant_data(cx, question: str) -> str:
-    """Query database for data relevant to the question."""
-    ql = question.lower()
-    results = []
-
-    # Check for specific player mentions
-    if any(word in ql for word in ['player', 'score', 'points', 'triple', 'double', 'debut']):
-        # Get recent high-scoring games
-        data = cx.execute(text("""
-            SELECT p.first_name || ' ' || p.last_name as player,
-                   t.abbreviation as team,
-                   pbs.points,
-                   pbs.assists,
-                   pbs.offensive_reb + pbs.defensive_reb as rebounds,
-                   gd.game_timestamp::date as game_date
-            FROM player_box_scores pbs
-            JOIN players p ON pbs.person_id = p.player_id
-            JOIN teams t ON pbs.team_id = t.team_id
-            JOIN game_details gd ON pbs.game_id = gd.game_id
-            ORDER BY pbs.points DESC
-            LIMIT 50
-        """)).fetchall()
-        results.append("Top scoring performances:\n" + "\n".join([
-            f"- {r[0]} ({r[1]}): {r[2]} pts, {r[3]} ast, {r[4]} reb on {r[5]}"
-            for r in data
-        ]))
-
-    # Check for game/team questions
-    if any(word in ql for word in ['game', 'team', 'vs', 'versus', 'play', 'won', 'lost']):
-        data = cx.execute(text("""
-            SELECT ht.abbreviation as home_team,
-                   at.abbreviation as away_team,
-                   gd.home_points,
-                   gd.away_points,
-                   gd.game_timestamp::date as game_date
-            FROM game_details gd
-            JOIN teams ht ON gd.home_team_id = ht.team_id
-            JOIN teams at ON gd.away_team_id = at.team_id
-            ORDER BY gd.game_timestamp DESC
-            LIMIT 30
-        """)).fetchall()
-        results.append("Recent games:\n" + "\n".join([
-            f"- {r[4]}: {r[0]} {r[2]} vs {r[1]} {r[3]}"
-            for r in data
-        ]))
-
-    # Check for Christmas games
-    if 'christmas' in ql:
-        data = cx.execute(text("""
-            SELECT ht.name as home_team,
-                   at.name as away_team,
-                   gd.home_points,
-                   gd.away_points,
-                   gd.game_timestamp::date as game_date
-            FROM game_details gd
-            JOIN teams ht ON gd.home_team_id = ht.team_id
-            JOIN teams at ON gd.away_team_id = at.team_id
-            WHERE EXTRACT(MONTH FROM gd.game_timestamp) = 12
-              AND EXTRACT(DAY FROM gd.game_timestamp) = 25
-        """)).fetchall()
-        if data:
-            results.append("Christmas Day games:\n" + "\n".join([
-                f"- {r[4]}: {r[0]} {r[2]} vs {r[1]} {r[3]}"
-                for r in data
-            ]))
-
-    # Check for triple-doubles
-    if 'triple' in ql and 'double' in ql:
-        data = cx.execute(text("""
-            SELECT p.first_name || ' ' || p.last_name as player,
-                   t.abbreviation as team,
-                   pbs.points,
-                   pbs.assists,
-                   pbs.offensive_reb + pbs.defensive_reb as rebounds,
-                   pbs.steals,
-                   pbs.blocks,
-                   gd.game_timestamp::date as game_date
-            FROM player_box_scores pbs
-            JOIN players p ON pbs.person_id = p.player_id
-            JOIN teams t ON pbs.team_id = t.team_id
-            JOIN game_details gd ON pbs.game_id = gd.game_id
-            WHERE pbs.points >= 10
-              AND pbs.assists >= 10
-              AND (pbs.offensive_reb + pbs.defensive_reb) >= 10
-            ORDER BY gd.game_timestamp DESC
-        """)).fetchall()
-        if data:
-            results.append("Triple-doubles:\n" + "\n".join([
-                f"- {r[0]} ({r[1]}): {r[2]} pts, {r[3]} ast, {r[4]} reb on {r[7]}"
-                for r in data
-            ]))
-
-    return "\n\n".join(results) if results else "No specific data found for this query."
-
-
 @app.post("/api/chat")
-def answer(q: Q):
-    """Answer question using Claude with database context and live data."""
+def chat(q: Q):
+    if not eng:
+        return {"answer": "The stats database isn't available right now. Please try again later.", "evidence": []}
+    if not llm:
+        return {"answer": "The AI service isn't configured. Please try again later.", "evidence": []}
+    question = q.question.strip()[:500]
+    if not question:
+        return {"answer": "Ask me something about NBA games or players.", "evidence": []}
     try:
-        print(f'Received question: {q.question}')
-
-        if not eng:
-            return {
-                "answer": "Error: Database is not configured. Please ensure you've linked the Neon database to your Vercel project.",
-                "evidence": []
-            }
-        if not claude:
-            return {"answer": "Error: AI Service is not configured. Please check ANTHROPIC_API_KEY.", "evidence": []}
-
-        with eng.connect() as cx:
-            # Get database context and relevant data
-            db_context = get_database_context(cx)
-            relevant_data = query_relevant_data(cx, q.question)
-
-        # Get live data from balldontlie API
-        live_data = get_live_data_context(q.question)
-
-        # Build the context
-        context_parts = [db_context, f"Historical Data:\n{relevant_data}"]
-        if live_data:
-            context_parts.append(f"Live/Current Data (from balldontlie API):\n{live_data}")
-
-        full_context = "\n\n".join(context_parts)
-
-        message = claude.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=1024,
-            messages=[
-                {
-                    "role": "user",
-                    "content": f"""You are an NBA statistics assistant. Answer the following question using the data provided.
-
-{full_context}
-
-Question: {q.question}
-
-Provide a clear, concise answer. Prioritize live/current data when answering questions about recent or current events. Use historical data for past seasons and records. If the data doesn't contain enough information, say so."""
-                }
-            ]
-        )
-
-        answer_text = message.content[0].text
-
-        return {
-            "answer": answer_text,
-            "evidence": [],
-            "used_live_data": bool(live_data)
-        }
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        print(f'Error in /api/chat: {str(e)}')
-        return {
-            "answer": f"Error processing question: {str(e)}",
-            "evidence": []
-        }
+        return run_agent(question)
+    except Exception:
+        log.error("chat failed:\n%s", traceback.format_exc())
+        return {"answer": "Something went wrong answering that. Please try again in a moment.", "evidence": []}
 
 
 @app.get("/api/health")
 def health():
-    """Health check endpoint."""
-    return {
-        "status": "ok",
-        "db_configured": eng is not None,
-        "ai_configured": claude is not None
-    }
-
-
-@app.get("/api/debug")
-def debug():
-    """Debug endpoint to test database connection."""
-    import re
-    # Mask password in DSN for display
-    masked_dsn = re.sub(r':([^:@]+)@', ':***@', DB_DSN)
-    try:
-        with eng.connect() as cx:
-            result = cx.execute(text("SELECT COUNT(*) FROM teams")).scalar()
-            return {"db_dsn": masked_dsn, "db_status": "connected", "teams_count": result}
-    except Exception as e:
-        return {"db_dsn": masked_dsn, "db_status": "error", "error": str(e)}
+    return {"status": "ok", "db_configured": eng is not None, "ai_configured": llm is not None, "model": MODEL_ID}
