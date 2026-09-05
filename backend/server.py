@@ -8,6 +8,7 @@ Messages API, so the model is a config value (MODEL_ID).
 """
 import json
 import logging
+import re
 import traceback
 from datetime import date, datetime, timedelta
 from functools import lru_cache
@@ -407,6 +408,13 @@ Rules:
 
 # --------------------------------------------------------------------------- agent loop
 
+def strip_markdown(text_: str) -> str:
+    text_ = re.sub(r"\*\*(.+?)\*\*", r"\1", text_)
+    text_ = re.sub(r"(?<!\w)\*(.+?)\*(?!\w)", r"\1", text_)
+    text_ = re.sub(r"^#{1,6}\s*", "", text_, flags=re.M)
+    return text_.replace("`", "")
+
+
 def run_agent(question: str) -> dict:
     messages = [{"role": "user", "content": question}]
     calls = []
@@ -414,7 +422,7 @@ def run_agent(question: str) -> dict:
         resp = llm.messages.create(model=MODEL_ID, max_tokens=2500, system=system_prompt(), tools=TOOLS, messages=messages)
         messages.append({"role": "assistant", "content": resp.content})
         if resp.stop_reason != "tool_use":
-            answer = " ".join(b.text for b in resp.content if b.type == "text").strip()
+            answer = strip_markdown(" ".join(b.text for b in resp.content if b.type == "text").strip())
             return {"answer": answer or "I couldn't produce an answer for that.", "evidence": calls}
         results = []
         for block in resp.content:
@@ -433,7 +441,7 @@ def run_agent(question: str) -> dict:
     # Round limit hit: force a final answer from whatever was gathered.
     messages.append({"role": "user", "content": "Stop using tools. Answer now from the results above, or say what you could not find."})
     resp = llm.messages.create(model=MODEL_ID, max_tokens=400, system=system_prompt(), messages=messages)
-    answer = " ".join(b.text for b in resp.content if b.type == "text").strip()
+    answer = strip_markdown(" ".join(b.text for b in resp.content if b.type == "text").strip())
     return {"answer": answer or "I couldn't find that in the available data.", "evidence": calls}
 
 
