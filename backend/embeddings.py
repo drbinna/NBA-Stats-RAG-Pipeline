@@ -20,13 +20,20 @@ def _normalize(v):
     return [x / n for x in v]
 
 
-def _fireworks(texts, retries=4):
+def _fireworks(texts, retries=6):
     if not FIREWORKS_API_KEY:
         raise RuntimeError("FIREWORKS_API_KEY is not set")
     for attempt in range(retries):
-        r = requests.post(FIREWORKS_URL, timeout=60,
-                          headers={"Authorization": f"Bearer {FIREWORKS_API_KEY}"},
-                          json={"model": EMBED_MODEL, "input": texts})
+        try:
+            r = requests.post(FIREWORKS_URL, timeout=60,
+                              headers={"Authorization": f"Bearer {FIREWORKS_API_KEY}"},
+                              json={"model": EMBED_MODEL, "input": texts})
+        except (requests.ConnectionError, requests.Timeout):
+            # Dropped connections and timeouts are retried like server errors.
+            if attempt == retries - 1:
+                raise
+            time.sleep(2 ** attempt)
+            continue
         if r.status_code in (429, 500, 502, 503) and attempt < retries - 1:
             time.sleep(2 ** attempt)
             continue
