@@ -128,8 +128,9 @@ RANGE_PROPS = {"season": {"type": "string", "description": "e.g. 2024-25"},
 TOOLS = [
     {"name": "search_records",
      "description": "Retrieve passages about specific games and player performances (scores, box-score lines, who won, "
-                    "how a player did on a date or against a team). Pass the user's question, rewritten to stand alone "
-                    "if it refers to earlier turns. Names, teams, dates and seasons in the query are used as filters.",
+                    "how a player did on a date or against a team). Pass the user's question in their own words. Never add a year, "
+                    "date, name or other detail they didn't give: names, teams, dates, seasons and stat thresholds in the "
+                    "query become filters, so a guessed detail returns the wrong games.",
      "input_schema": {"type": "object", "properties": {"query": {"type": "string"}, "k": {"type": "integer", "default": 8}},
                       "required": ["query"]}},
     {"name": "stat_leaders",

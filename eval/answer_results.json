@@ -1,0 +1,604 @@
+{
+  "summary": {
+    "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+    "questions": 22,
+    "accuracy": 1.0,
+    "latency_ms_p50": 1390.25,
+    "avg_input_tokens": 2052,
+    "avg_output_tokens": 146,
+    "avg_cost_usd": 0.00079
+  },
+  "results": [
+    {
+      "q": "How many points did Darius Garland score against the Bucks on March 9, 2025?",
+      "expect": [
+        "13"
+      ],
+      "answer": "13 points. Darius Garland scored 13 points (5 rebounds, 5 assists) in the Cavaliers' 112-100 road win over the Bucks on March 9, 2025 [line:0022400922:1629636].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1420,
+        "output_tokens": 134,
+        "embed_tokens": 0,
+        "latency_ms": 6308.9,
+        "timing_ms": {
+          "generate": 1631.6,
+          "parse": 56.2,
+          "embed": 4403.1,
+          "retrieve": 217.6
+        },
+        "cost_usd": 0.000587,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "How many points did Austin Reaves score against the Mavericks on April 9, 2025?",
+      "expect": [
+        "11"
+      ],
+      "answer": "Austin Reaves scored 11 points against the Mavericks on April 9, 2025, in the Lakers' 112-97 road win [line:0022401159:1630559].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1409,
+        "output_tokens": 111,
+        "embed_tokens": 0,
+        "latency_ms": 1600.2,
+        "timing_ms": {
+          "generate": 1416.6,
+          "parse": 36.8,
+          "embed": 13.3,
+          "retrieve": 133.1
+        },
+        "cost_usd": 0.000556,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "How many points did Naji Marshall score against the Spurs on March 12, 2025?",
+      "expect": [
+        "15"
+      ],
+      "answer": "15 points.\n\nNaji Marshall scored 15 points (7-15 FG, 1-6 3PT, 0-1 FT) with 3 rebounds and 3 assists in Dallas's 126-116 loss to San Antonio on March 12, 2025 [line:0022400951:1630230].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1406,
+        "output_tokens": 137,
+        "embed_tokens": 0,
+        "latency_ms": 1394.1,
+        "timing_ms": {
+          "generate": 1186.5,
+          "parse": 47.1,
+          "embed": 12.1,
+          "retrieve": 148.1
+        },
+        "cost_usd": 0.000586,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "How many points did Kessler Edwards score against the Suns on March 9, 2025?",
+      "expect": [
+        "10"
+      ],
+      "answer": "Kessler Edwards scored 10 points against the Suns on March 9, 2025, in Dallas's 116-125 home loss [line:0022400921:1630556].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 2311,
+        "output_tokens": 122,
+        "embed_tokens": 0,
+        "latency_ms": 1349.3,
+        "timing_ms": {
+          "generate": 1274.0,
+          "parse": 53.3,
+          "embed": 17.7,
+          "retrieve": 3.8
+        },
+        "cost_usd": 0.00084,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "How many points did Zach LaVine score against the Celtics on March 24, 2025?",
+      "expect": [
+        "14"
+      ],
+      "answer": "14 points.\n\nZach LaVine (SAC) had 14 points, 5 rebounds and 2 assists in a 95-113 home loss to Boston on March 24, 2025, shooting 6-16 FG in 36 minutes [line:0022401044:203897].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1508,
+        "output_tokens": 241,
+        "embed_tokens": 0,
+        "latency_ms": 1897.7,
+        "timing_ms": {
+          "generate": 1693.9,
+          "parse": 34.4,
+          "embed": 13.8,
+          "retrieve": 155.3
+        },
+        "cost_usd": 0.000742,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "How many points did LeBron James score against the Kings on December 19, 2024?",
+      "expect": [
+        "19"
+      ],
+      "answer": "19 points.\n\nLeBron James scored 19 points (6 rebounds, 7 assists) in the Lakers' 113-100 road win over the Kings on December 19, 2024 [line:0022400372:2544].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1417,
+        "output_tokens": 113,
+        "embed_tokens": 0,
+        "latency_ms": 1449.0,
+        "timing_ms": {
+          "generate": 1052.6,
+          "parse": 41.4,
+          "embed": 13.7,
+          "retrieve": 341.1
+        },
+        "cost_usd": 0.000561,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "How many points did Wendell Carter Jr. score against the Thunder on December 19, 2024?",
+      "expect": [
+        "10"
+      ],
+      "answer": "Wendell Carter Jr. scored 10 points against the Thunder on December 19, 2024 [line:0022400361:1628976]. He added 13 rebounds and 4 assists in a 99-105 home loss to OKC.",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 2306,
+        "output_tokens": 130,
+        "embed_tokens": 0,
+        "latency_ms": 1305.4,
+        "timing_ms": {
+          "generate": 1071.3,
+          "parse": 42.9,
+          "embed": 14.3,
+          "retrieve": 176.5
+        },
+        "cost_usd": 0.000848,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "How many points did AJ Johnson score against the 76ers on March 26, 2025?",
+      "expect": [
+        "9"
+      ],
+      "answer": "AJ Johnson scored 9 points against the 76ers on March 26, 2025, adding 5 rebounds and 6 assists in Washington's 119-114 road win [line:0022401053:1642358].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 2291,
+        "output_tokens": 111,
+        "embed_tokens": 0,
+        "latency_ms": 1222.0,
+        "timing_ms": {
+          "generate": 1114.4,
+          "parse": 35.8,
+          "embed": 12.0,
+          "retrieve": 59.5
+        },
+        "cost_usd": 0.00082,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "How many points did Scotty Pippen Jr. score against the Heat on March 15, 2025?",
+      "expect": [
+        "11"
+      ],
+      "answer": "11 points. Scotty Pippen Jr. had 11 points, 6 rebounds and 11 assists in the Grizzlies' 125-91 home win over the Heat on March 15, 2025 [line:0022400971:1630590].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1498,
+        "output_tokens": 180,
+        "embed_tokens": 0,
+        "latency_ms": 1519.0,
+        "timing_ms": {
+          "generate": 1405.5,
+          "parse": 35.8,
+          "embed": 12.7,
+          "retrieve": 64.6
+        },
+        "cost_usd": 0.000665,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "How many points did Shake Milton score against the Raptors on December 19, 2024?",
+      "expect": [
+        "12"
+      ],
+      "answer": "Shake Milton scored 12 points against the Raptors on December 19, 2024 [line:0022400364:1629003].\n\nHe added 3 rebounds and 2 assists in 29 minutes as Brooklyn won 101-94 on the road.",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1425,
+        "output_tokens": 141,
+        "embed_tokens": 0,
+        "latency_ms": 1338.8,
+        "timing_ms": {
+          "generate": 1257.9,
+          "parse": 59.5,
+          "embed": 17.3,
+          "retrieve": 3.8
+        },
+        "cost_usd": 0.000597,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who won the Timberwolves vs Trail Blazers game on 11/8/2024, and what was the score?",
+      "expect": [
+        "Timberwolves",
+        "127",
+        "102"
+      ],
+      "answer": "The Minnesota Timberwolves won, beating the Portland Trail Blazers 127-102 on 11/8/2024 in Minnesota. Anthony Edwards led all scorers with 37 points [game:0022400193][line:0022400193:1630162].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 2332,
+        "output_tokens": 136,
+        "embed_tokens": 0,
+        "latency_ms": 1386.4,
+        "timing_ms": {
+          "generate": 1243.5,
+          "parse": 53.6,
+          "embed": 17.7,
+          "retrieve": 71.1
+        },
+        "cost_usd": 0.000863,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who won the Mavericks vs Suns game on 3/9/2025, and what was the score?",
+      "expect": [
+        "Suns",
+        "125",
+        "116"
+      ],
+      "answer": "The Phoenix Suns won 125-116 over the Dallas Mavericks on 3/9/2025 in Dallas [game:0022400921].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 3173,
+        "output_tokens": 97,
+        "embed_tokens": 0,
+        "latency_ms": 1229.4,
+        "timing_ms": {
+          "generate": 985.5,
+          "parse": 43.8,
+          "embed": 16.9,
+          "retrieve": 182.9
+        },
+        "cost_usd": 0.001068,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who won the Warriors vs Bulls game on 1/23/2025, and what was the score?",
+      "expect": [
+        "Warriors",
+        "131",
+        "106"
+      ],
+      "answer": "The Golden State Warriors won 131-106 over the Chicago Bulls on 1/23/2025.\n\nGolden State beat Chicago by 25 at home. Zach LaVine led the Bulls with 24 points, while Stephen Curry led the Warriors with 21 [game:0022400628].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 3180,
+        "output_tokens": 136,
+        "embed_tokens": 0,
+        "latency_ms": 1401.4,
+        "timing_ms": {
+          "generate": 1203.8,
+          "parse": 58.8,
+          "embed": 12.4,
+          "retrieve": 126.0
+        },
+        "cost_usd": 0.001117,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who won the Wizards vs Clippers game on 11/27/2024, and what was the score?",
+      "expect": [
+        "Clippers",
+        "121",
+        "96"
+      ],
+      "answer": "The LA Clippers won, 121-96 over the Washington Wizards, on 11/27/2024 in Washington. James Harden led all scorers with 43 points for the Clippers, while Malcolm Brogdon had 17 for the Wizards [game:0022400291].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 2327,
+        "output_tokens": 131,
+        "embed_tokens": 0,
+        "latency_ms": 1270.5,
+        "timing_ms": {
+          "generate": 1155.6,
+          "parse": 44.6,
+          "embed": 15.9,
+          "retrieve": 54.1
+        },
+        "cost_usd": 0.000855,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who won the Magic vs Pelicans game on 11/8/2024, and what was the score?",
+      "expect": [
+        "Magic",
+        "115",
+        "88"
+      ],
+      "answer": "The Orlando Magic won 115-88 over the New Orleans Pelicans on 11/8/2024 in Orlando [game:0022400186]. Franz Wagner led Orlando with 27 points, while Brandon Boston Jr. scored 26 for New Orleans.",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 2314,
+        "output_tokens": 120,
+        "embed_tokens": 0,
+        "latency_ms": 1062.3,
+        "timing_ms": {
+          "generate": 962.3,
+          "parse": 75.1,
+          "embed": 19.3,
+          "retrieve": 5.4
+        },
+        "cost_usd": 0.000838,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who won the Clippers vs Pelicans game on 4/2/2025, and what was the score?",
+      "expect": [
+        "Clippers",
+        "114",
+        "98"
+      ],
+      "answer": "The LA Clippers beat the New Orleans Pelicans 114-98 on April 2, 2025, at home in LA. Kawhi Leonard led all scorers with 28 points, while Jose Alvarado had 17 for New Orleans [game:0022401111].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 3222,
+        "output_tokens": 141,
+        "embed_tokens": 0,
+        "latency_ms": 1857.2,
+        "timing_ms": {
+          "generate": 1467.5,
+          "parse": 50.0,
+          "embed": 17.2,
+          "retrieve": 322.0
+        },
+        "cost_usd": 0.001136,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who won the Trail Blazers vs Pelicans game on 10/25/2024, and what was the score?",
+      "expect": [
+        "Pelicans",
+        "105",
+        "103"
+      ],
+      "answer": "The New Orleans Pelicans won 105-103 over the Portland Trail Blazers [game:0022400086].\n\nIt was a 2-point Pelicans road win on 10/25/2024; Jerami Grant led Portland with 34 points, while Jordan Hawkins paced New Orleans with 24 [game:0022400086].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 2340,
+        "output_tokens": 140,
+        "embed_tokens": 0,
+        "latency_ms": 1660.8,
+        "timing_ms": {
+          "generate": 1402.7,
+          "parse": 62.7,
+          "embed": 17.1,
+          "retrieve": 178.0
+        },
+        "cost_usd": 0.00087,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who won the Magic vs Knicks game on 12/15/2024, and what was the score?",
+      "expect": [
+        "Knicks",
+        "100",
+        "91"
+      ],
+      "answer": "The New York Knicks won 100-91 over the Orlando Magic [game:0022401227].\n\nIt was an away win in Orlando on 12/15/2024. Jalen Brunson led the Knicks with 31 points, while Moritz Wagner scored 32 for the Magic [line:0022401227:1628973][line:0022401227:1629021].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1464,
+        "output_tokens": 148,
+        "embed_tokens": 0,
+        "latency_ms": 1296.7,
+        "timing_ms": {
+          "generate": 1207.9,
+          "parse": 66.5,
+          "embed": 16.8,
+          "retrieve": 5.1
+        },
+        "cost_usd": 0.000617,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who won the Pelicans vs Spurs game on 2/23/2025, and what was the score?",
+      "expect": [
+        "Pelicans",
+        "114",
+        "96"
+      ],
+      "answer": "The New Orleans Pelicans won 114-96 over the San Antonio Spurs on 2/23/2025 in New Orleans [game:0022400818]. Zion Williamson led the Pelicans with 22 points [line:0022400818:1629627].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1445,
+        "output_tokens": 117,
+        "embed_tokens": 0,
+        "latency_ms": 1320.7,
+        "timing_ms": {
+          "generate": 992.3,
+          "parse": 60.7,
+          "embed": 17.2,
+          "retrieve": 250.1
+        },
+        "cost_usd": 0.000574,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who won the Rockets vs Magic game on 3/10/2025, and what was the score?",
+      "expect": [
+        "Rockets",
+        "97",
+        "84"
+      ],
+      "answer": "The Houston Rockets won 97-84 over the Orlando Magic on 3/10/2025 in Houston [game:0022400934].\n\nJabari Smith Jr. led Houston with 20 points; Paolo Banchero led Orlando with 25 [game:0022400934].",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1462,
+        "output_tokens": 139,
+        "embed_tokens": 0,
+        "latency_ms": 1325.5,
+        "timing_ms": {
+          "generate": 1260.7,
+          "parse": 43.8,
+          "embed": 16.6,
+          "retrieve": 4.0
+        },
+        "cost_usd": 0.000605,
+        "tools": [
+          "search_records"
+        ]
+      }
+    },
+    {
+      "q": "Who averaged the most assists per game last season? Minimum 50 games.",
+      "expect": [
+        "Young"
+      ],
+      "answer": "Trae Young (ATL) led the league with 11.6 assists per game over 75 games [stat_leaders: assists, 2024-25]. Nikola Jokic was second at 10.2.",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 1658,
+        "output_tokens": 177,
+        "embed_tokens": 0,
+        "latency_ms": 1478.7,
+        "timing_ms": {
+          "generate": 1458.6
+        },
+        "cost_usd": 0.00071,
+        "tools": [
+          "stat_leaders"
+        ]
+      }
+    },
+    {
+      "q": "How many points did Zorp Blatt score last night?",
+      "expect": [
+        "n't",
+        "no ",
+        "not"
+      ],
+      "answer": "I can't find any player named Zorp Blatt in the database. The search returned only similarly-named players (e.g., Ziaire Williams), so there's no record of a \"Zorp Blatt\" scoring any points.\n\nAlso worth noting: the database covers regular-season games from 2024-10-22 to 2025-04-13, so \"last night\" (2025-11-05) falls outside the available data regardless.",
+      "ok": true,
+      "usage": {
+        "model": "accounts/fireworks/models/deepseek-v4p1-flash",
+        "llm_calls": 2,
+        "input_tokens": 3230,
+        "output_tokens": 303,
+        "embed_tokens": 0,
+        "latency_ms": 8077.7,
+        "timing_ms": {
+          "generate": 2117.2,
+          "parse": 42.0,
+          "embed": 10.4,
+          "retrieve": 5907.8
+        },
+        "cost_usd": 0.001333,
+        "tools": [
+          "search_records"
+        ]
+      }
+    }
+  ]
+}

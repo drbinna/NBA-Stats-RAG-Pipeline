@@ -37,7 +37,9 @@ What the numbers say:
 - **Keyword fusion was tested and left out.** Fusing vector rank with Postgres full-text rank (reciprocal rank fusion) lowered Recall@1 on both sets, because common words such as "points" and month names match thousands of passages. It is still available as `mode=fusion`.
 - **Remaining misses** are nicknames the parser doesn't know (for example "Dame" and "Ja", deliberately left out of the alias list so the test stays honest). They still land in the top 5.
 
-Median retrieval latency is 59 ms per question, including parsing and the query embedding. These figures used a local quantized copy of `nomic-embed-text-v1.5`; the hosted Fireworks model is the same model, so results should be close. Run `python -m tests.eval` with a Fireworks key for answer accuracy, latency, tokens and cost per request.
+Median retrieval latency is 59 ms per question, including parsing and the query embedding. These figures used a local quantized copy of `nomic-embed-text-v1.5`; the hosted Fireworks model is the same model, so results should be close. 
+
+End to end (`tests/eval.py`, 22 questions whose answers are checked against values computed from the database, including an aggregate question and a player who doesn't exist): **100% correct**, median latency **1.4 s**, about 2,052 input and 146 output tokens, **$0.0008 per question** with `deepseek-v4p1-flash` at Fireworks' listed $0.30 / $1.20 per million input / output tokens.
 
 ## How a question is answered
 

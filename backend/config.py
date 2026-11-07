@@ -15,7 +15,7 @@ SA_DSN = DB_DSN.replace("postgresql://", "postgresql+psycopg2://", 1) if DB_DSN 
 
 # Generation runs on Fireworks AI through its Anthropic-compatible endpoint.
 FIREWORKS_API_KEY = os.getenv("FIREWORKS_API_KEY")
-MODEL_ID = os.getenv("MODEL_ID", "accounts/fireworks/models/qwen3p7-plus")
+MODEL_ID = os.getenv("MODEL_ID", "accounts/fireworks/models/deepseek-v4p1-flash")
 
 # Embeddings: nomic-embed-text-v1.5 (768 dimensions). "fireworks" calls the hosted model;
 # "local" runs the same model on this machine with fastembed (ingest and evaluation only).
