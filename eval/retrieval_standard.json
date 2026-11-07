@@ -1,0 +1,142 @@
+{
+  "set": "standard",
+  "corpus_passages": 27381,
+  "seasons": [
+    "2024-25"
+  ],
+  "embedding": "local:nomic-ai/nomic-embed-text-v1.5",
+  "questions": 160,
+  "entity_parse_accuracy": 1.0,
+  "modes": {
+    "vector": {
+      "overall": {
+        "n": 160,
+        "recall@1": 0.463,
+        "recall@5": 0.744,
+        "recall@10": 0.781,
+        "mrr@10": 0.593
+      },
+      "by_type": {
+        "game_result": {
+          "n": 40,
+          "recall@1": 0.625,
+          "recall@5": 0.95,
+          "recall@10": 0.95,
+          "mrr@10": 0.775
+        },
+        "player_on_date": {
+          "n": 40,
+          "recall@1": 0.05,
+          "recall@5": 0.25,
+          "recall@10": 0.4,
+          "mrr@10": 0.152
+        },
+        "player_vs_team_on_date": {
+          "n": 40,
+          "recall@1": 0.5,
+          "recall@5": 0.9,
+          "recall@10": 0.9,
+          "mrr@10": 0.692
+        },
+        "triple_double_vs_team": {
+          "n": 40,
+          "recall@1": 0.675,
+          "recall@5": 0.875,
+          "recall@10": 0.875,
+          "mrr@10": 0.755
+        }
+      },
+      "latency_ms": {
+        "p50": 18.2,
+        "p95": 26.4
+      }
+    },
+    "filtered": {
+      "overall": {
+        "n": 160,
+        "recall@1": 1.0,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "mrr@10": 1.0
+      },
+      "by_type": {
+        "game_result": {
+          "n": 40,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 1.0
+        },
+        "player_on_date": {
+          "n": 40,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 1.0
+        },
+        "player_vs_team_on_date": {
+          "n": 40,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 1.0
+        },
+        "triple_double_vs_team": {
+          "n": 40,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 1.0
+        }
+      },
+      "latency_ms": {
+        "p50": 58.6,
+        "p95": 91.4
+      }
+    },
+    "fusion": {
+      "overall": {
+        "n": 160,
+        "recall@1": 0.969,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "mrr@10": 0.982
+      },
+      "by_type": {
+        "game_result": {
+          "n": 40,
+          "recall@1": 0.875,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 0.929
+        },
+        "player_on_date": {
+          "n": 40,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 1.0
+        },
+        "player_vs_team_on_date": {
+          "n": 40,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 1.0
+        },
+        "triple_double_vs_team": {
+          "n": 40,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 1.0
+        }
+      },
+      "latency_ms": {
+        "p50": 59.0,
+        "p95": 93.5
+      }
+    }
+  },
+  "production_misses_at_1": []
+}

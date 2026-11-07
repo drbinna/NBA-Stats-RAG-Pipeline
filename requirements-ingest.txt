@@ -1,0 +1,6 @@
+-r requirements.txt
+pandas
+pyarrow
+pytest
+# Only for EMBED_PROVIDER=local (embedding on your own machine instead of Fireworks):
+fastembed

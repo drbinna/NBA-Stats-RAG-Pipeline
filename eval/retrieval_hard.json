@@ -1,0 +1,376 @@
+{
+  "set": "hard",
+  "corpus_passages": 27381,
+  "seasons": [
+    "2024-25"
+  ],
+  "embedding": "local:nomic-ai/nomic-embed-text-v1.5",
+  "questions": 160,
+  "entity_parse_accuracy": 1.0,
+  "modes": {
+    "vector": {
+      "overall": {
+        "n": 160,
+        "recall@1": 0.225,
+        "recall@5": 0.406,
+        "recall@10": 0.463,
+        "mrr@10": 0.313
+      },
+      "by_type": {
+        "cities_only": {
+          "n": 40,
+          "recall@1": 0.6,
+          "recall@5": 0.85,
+          "recall@10": 0.925,
+          "mrr@10": 0.731
+        },
+        "described_not_named": {
+          "n": 40,
+          "recall@1": 0.0,
+          "recall@5": 0.0,
+          "recall@10": 0.025,
+          "mrr@10": 0.003
+        },
+        "misspelled_name": {
+          "n": 40,
+          "recall@1": 0.025,
+          "recall@5": 0.175,
+          "recall@10": 0.225,
+          "mrr@10": 0.09
+        },
+        "unknown_nickname": {
+          "n": 40,
+          "recall@1": 0.275,
+          "recall@5": 0.6,
+          "recall@10": 0.675,
+          "mrr@10": 0.429
+        }
+      },
+      "latency_ms": {
+        "p50": 19.6,
+        "p95": 26.1
+      }
+    },
+    "filtered": {
+      "overall": {
+        "n": 160,
+        "recall@1": 0.938,
+        "recall@5": 1.0,
+        "recall@10": 1.0,
+        "mrr@10": 0.963
+      },
+      "by_type": {
+        "cities_only": {
+          "n": 40,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 1.0
+        },
+        "described_not_named": {
+          "n": 40,
+          "recall@1": 0.925,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 0.963
+        },
+        "misspelled_name": {
+          "n": 40,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 1.0
+        },
+        "unknown_nickname": {
+          "n": 40,
+          "recall@1": 0.825,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 0.89
+        }
+      },
+      "latency_ms": {
+        "p50": 70.2,
+        "p95": 96.0
+      }
+    },
+    "fusion": {
+      "overall": {
+        "n": 160,
+        "recall@1": 0.869,
+        "recall@5": 0.988,
+        "recall@10": 0.994,
+        "mrr@10": 0.918
+      },
+      "by_type": {
+        "cities_only": {
+          "n": 40,
+          "recall@1": 0.825,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 0.893
+        },
+        "described_not_named": {
+          "n": 40,
+          "recall@1": 0.95,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 0.975
+        },
+        "misspelled_name": {
+          "n": 40,
+          "recall@1": 1.0,
+          "recall@5": 1.0,
+          "recall@10": 1.0,
+          "mrr@10": 1.0
+        },
+        "unknown_nickname": {
+          "n": 40,
+          "recall@1": 0.7,
+          "recall@5": 0.95,
+          "recall@10": 0.975,
+          "mrr@10": 0.806
+        }
+      },
+      "latency_ms": {
+        "p50": 71.0,
+        "p95": 97.2
+      }
+    }
+  },
+  "production_misses_at_1": [
+    {
+      "q": "What did Dame do against Cleveland on 11/4/2024?",
+      "gold": [
+        "line:0022400154:203081"
+      ],
+      "got": [
+        "line:0022400154:1626153",
+        "line:0022400154:1641854",
+        "line:0022400154:203081"
+      ],
+      "filters": {
+        "players": [],
+        "teams": [
+          "CLE"
+        ],
+        "dates": [
+          "2024-11-04"
+        ],
+        "season": null,
+        "stats": [],
+        "relaxed": []
+      }
+    },
+    {
+      "q": "What did Ja do against Phoenix on February 11, 2025?",
+      "gold": [
+        "line:0022400767:1629630"
+      ],
+      "got": [
+        "line:0022400767:1628991",
+        "line:0022400767:1629630",
+        "line:0022400767:1631102"
+      ],
+      "filters": {
+        "players": [],
+        "teams": [
+          "PHX"
+        ],
+        "dates": [
+          "2025-02-11"
+        ],
+        "season": null,
+        "stats": [],
+        "relaxed": []
+      }
+    },
+    {
+      "q": "What did Ja do against Boston on 12/7/2024?",
+      "gold": [
+        "line:0022400345:1629630"
+      ],
+      "got": [
+        "line:0022400345:1628991",
+        "line:0022400345:1630643",
+        "line:0022400345:1629630"
+      ],
+      "filters": {
+        "players": [],
+        "teams": [
+          "BOS"
+        ],
+        "dates": [
+          "2024-12-07"
+        ],
+        "season": null,
+        "stats": [],
+        "relaxed": []
+      }
+    },
+    {
+      "q": "What did Ja do against Oklahoma City on 2/8/2025?",
+      "gold": [
+        "line:0022400746:1629630"
+      ],
+      "got": [
+        "line:0022400746:1628991",
+        "line:0022400746:1630198",
+        "line:0022400746:1629630"
+      ],
+      "filters": {
+        "players": [],
+        "teams": [
+          "OKC"
+        ],
+        "dates": [
+          "2025-02-08"
+        ],
+        "season": null,
+        "stats": [],
+        "relaxed": []
+      }
+    },
+    {
+      "q": "What did Ja do against Minnesota on April 10, 2025?",
+      "gold": [
+        "line:0022401170:1629630"
+      ],
+      "got": [
+        "line:0022401170:1628991",
+        "line:0022401170:1629630",
+        "line:0022401170:1641713"
+      ],
+      "filters": {
+        "players": [],
+        "teams": [
+          "MIN"
+        ],
+        "dates": [
+          "2025-04-10"
+        ],
+        "season": null,
+        "stats": [],
+        "relaxed": []
+      }
+    },
+    {
+      "q": "What did Ja do against Sacramento on December 5, 2024?",
+      "gold": [
+        "line:0022400329:1629630"
+      ],
+      "got": [
+        "line:0022400329:1628991",
+        "line:0022400329:1629162",
+        "line:0022400329:1629630"
+      ],
+      "filters": {
+        "players": [],
+        "teams": [
+          "SAC"
+        ],
+        "dates": [
+          "2024-12-05"
+        ],
+        "season": null,
+        "stats": [],
+        "relaxed": []
+      }
+    },
+    {
+      "q": "What did Dame do against New York on January 12, 2025?",
+      "gold": [
+        "line:0022400539:203081"
+      ],
+      "got": [
+        "line:0022400539:1641857",
+        "line:0022400539:1626192",
+        "line:0022400539:1631260"
+      ],
+      "filters": {
+        "players": [],
+        "teams": [
+          "NYK"
+        ],
+        "dates": [
+          "2025-01-12"
+        ],
+        "season": null,
+        "stats": [],
+        "relaxed": []
+      }
+    },
+    {
+      "q": "Who dropped 35+ points for the Lakers on 11/21?",
+      "gold": [
+        "line:0022400263:203076"
+      ],
+      "got": [
+        "line:0022400263:1630532",
+        "line:0022400263:203076"
+      ],
+      "filters": {
+        "players": [],
+        "teams": [
+          "LAL"
+        ],
+        "dates": [
+          "2024-11-21"
+        ],
+        "season": null,
+        "stats": [
+          "pts>=35"
+        ],
+        "relaxed": []
+      }
+    },
+    {
+      "q": "Who dropped 35+ points for the Knicks on 3/25?",
+      "gold": [
+        "line:0022401048:1628384"
+      ],
+      "got": [
+        "line:0022401048:1630230",
+        "line:0022401048:1628384"
+      ],
+      "filters": {
+        "players": [],
+        "teams": [
+          "NYK"
+        ],
+        "dates": [
+          "2025-03-25"
+        ],
+        "season": null,
+        "stats": [
+          "pts>=35"
+        ],
+        "relaxed": []
+      }
+    },
+    {
+      "q": "Who dropped 35+ points for the Nuggets on 2/3/2025?",
+      "gold": [
+        "line:0022400706:1629008"
+      ],
+      "got": [
+        "line:0022400706:1630530",
+        "line:0022400706:1629008"
+      ],
+      "filters": {
+        "players": [],
+        "teams": [
+          "DEN"
+        ],
+        "dates": [
+          "2025-02-03"
+        ],
+        "season": null,
+        "stats": [
+          "pts>=35"
+        ],
+        "relaxed": []
+      }
+    }
+  ]
+}
