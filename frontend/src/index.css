@@ -1,0 +1,101 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* Palette: a hardwood floor, the ink of a printed box score, rim orange for the one action. */
+:root {
+  --background: #f3f5f7;
+  --foreground: #14233d;
+  --card: #ffffff;
+  --card-foreground: #14233d;
+  --popover: #ffffff;
+  --popover-foreground: #14233d;
+  --primary: #e2552b;
+  --primary-foreground: #ffffff;
+  --secondary: #e8edf3;
+  --secondary-foreground: #14233d;
+  --muted: #e8edf3;
+  --muted-foreground: #5b6b82;
+  --accent: #e6ebf1;
+  --accent-foreground: #14233d;
+  --destructive: #c4321c;
+  --destructive-foreground: #ffffff;
+  --border: #d5dde7;
+  --input: #d5dde7;
+  --ring: #24539e;
+  --maple: #c9894b;
+  --maple-dark: #a86d36;
+  --paint: #24539e;
+  --radius: 0.75rem;
+}
+
+.dark {
+  --background: #0e1a2c;
+  --foreground: #e9eef5;
+  --card: #15253d;
+  --card-foreground: #e9eef5;
+  --popover: #15253d;
+  --popover-foreground: #e9eef5;
+  --primary: #f0663b;
+  --primary-foreground: #ffffff;
+  --secondary: #1d3050;
+  --secondary-foreground: #e9eef5;
+  --muted: #1d3050;
+  --muted-foreground: #9db0c8;
+  --accent: #213656;
+  --accent-foreground: #e9eef5;
+  --destructive: #ef5a43;
+  --destructive-foreground: #000000;
+  --border: #284066;
+  --input: #284066;
+  --ring: #7aa7ec;
+  --maple: #b57a40;
+  --maple-dark: #8f5d2c;
+  --paint: #8db5f2;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-maple: var(--maple);
+  --color-maple-dark: var(--maple-dark);
+  --color-paint: var(--paint);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --font-sans: "Barlow", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Barlow Condensed", "Barlow", ui-sans-serif, sans-serif;
+}
+
+@layer base {
+  * { @apply border-border; }
+  html, body, #root { height: 100%; }
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "tnum" 1, "lnum" 1;
+  }
+  :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
