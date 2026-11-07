@@ -4,7 +4,7 @@ import { environment } from '../environments/environment';
 
 interface EvidenceItem {
   table: string;
-  id: number;
+  id: string;
 }
 
 interface Message {
@@ -85,7 +85,7 @@ export class AppComponent implements OnInit, OnDestroy {
 
   formatEvidence(evidence: EvidenceItem[] = []): string {
     if (!evidence.length) return '';
-    const items = evidence.map(ev => `{ "table": "${ev.table}", "id": ${ev.id} }`);
+    const items = evidence.map(ev => `{ "table": "${ev.table}", "id": "${ev.id}" }`);
     return `[ ${items.join(', ')} ]`;
   }
 

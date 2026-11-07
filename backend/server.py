@@ -1,28 +1,34 @@
 """
-Courtside — NBA stats assistant.
+Courtside — NBA stats assistant built on retrieval-augmented generation.
 
-Architecture: a tool-using agent. The model never sees a dump of the database;
-it calls typed, parameterized SQL tools (plus two live-data tools) and answers
-only from what they return. Runs on Fireworks AI via the Anthropic-compatible
-Messages API, so the model is a config value (MODEL_ID).
+Every question is answered from passages retrieved out of pgvector: one passage
+per game and one per player per game, embedded with nomic-embed-text-v1.5.
+Retrieval is hybrid: entity filters (players, teams, dates, seasons, stat
+thresholds) narrow the passages, then vector similarity ranks them. Questions that need arithmetic over many games ("who leads
+the league in assists") go to typed SQL aggregate tools instead, because
+retrieving passages can't count or average reliably.
+
+The model runs on Fireworks AI through the Anthropic-compatible Messages API,
+and every response reports its token usage, latency by stage and cost.
 """
 import json
 import logging
 import re
+import time
 import traceback
-from datetime import date, datetime, timedelta
+from datetime import date
 from functools import lru_cache
-from typing import Optional
 
 import anthropic
-import requests
 import sqlalchemy as sa
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy import text
 
-from backend.config import DB_DSN, BALLDONTLIE_API_KEY, FIREWORKS_API_KEY, MODEL_ID
+from backend import retrieval
+from backend.config import (SA_DSN, EMBED_PRICE_PER_M, FIREWORKS_API_KEY, MODEL_ID,
+                            PRICE_IN_PER_M, PRICE_OUT_PER_M)
 
 log = logging.getLogger("courtside")
 logging.basicConfig(level=logging.INFO)
@@ -30,51 +36,23 @@ logging.basicConfig(level=logging.INFO)
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-eng = sa.create_engine(DB_DSN, pool_pre_ping=True) if DB_DSN else None
-llm = (
-    anthropic.Anthropic(api_key=FIREWORKS_API_KEY, base_url="https://api.fireworks.ai/inference")
-    if FIREWORKS_API_KEY else None
-)
+eng = sa.create_engine(SA_DSN, pool_pre_ping=True) if SA_DSN else None
+llm = (anthropic.Anthropic(api_key=FIREWORKS_API_KEY, base_url="https://api.fireworks.ai/inference")
+       if FIREWORKS_API_KEY else None)
 
-BALLDONTLIE_BASE_URL = "https://api.balldontlie.io/v1"
-MAX_TOOL_ROUNDS = 6
-
-# Nicknames a substring match on the players table won't catch.
-ALIASES = {
-    "sga": "Shai Gilgeous-Alexander", "shai": "Shai Gilgeous-Alexander",
-    "chet": "Chet Holmgren", "jdub": "Jalen Williams", "j-dub": "Jalen Williams",
-    "dort": "Luguentz Dort", "lu dort": "Luguentz Dort",
-    "joker": "Nikola Jokic", "jokic": "Nikola Jokic",
-    "bron": "LeBron James", "lebron": "LeBron James",
-    "steph": "Stephen Curry", "curry": "Stephen Curry",
-    "giannis": "Giannis Antetokounmpo", "luka": "Luka Doncic",
-    "ant": "Anthony Edwards", "wemby": "Victor Wembanyama",
-    "tatum": "Jayson Tatum", "kd": "Kevin Durant",
-}
-
-STAT_COLUMNS = {
-    "points": "pbs.points", "assists": "pbs.assists",
-    "rebounds": "(pbs.offensive_reb + pbs.defensive_reb)",
-    "steals": "pbs.steals", "blocks": "pbs.blocks", "turnovers": "pbs.turnovers",
-    "minutes": "(pbs.seconds / 60.0)",
-}
+MAX_TOOL_ROUNDS = 5
+STATS = {"points": "pts", "rebounds": "reb", "assists": "ast", "steals": "stl", "blocks": "blk",
+         "turnovers": "tov", "threes": "fg3m", "minutes": "minutes"}
+TD = "((pts >= 10)::int + (reb >= 10)::int + (ast >= 10)::int + (stl >= 10)::int + (blk >= 10)::int) >= 3"
 
 
-# --------------------------------------------------------------------------- DB helpers
-
-def rows_to_dicts(result) -> list:
-    keys = list(result.keys())
-    out = []
-    for r in result.fetchall():
-        d = {}
-        for k, v in zip(keys, r):
-            if isinstance(v, (date, datetime)):
-                v = v.isoformat()
-            elif v is not None and not isinstance(v, (int, float, bool, str)) and hasattr(v, "__float__"):
-                v = float(v)
-            d[k] = v
-        out.append(d)
-    return out
+def rows(sql, params):
+    with eng.connect() as cx:
+        out = []
+        for r in cx.execute(text(sql), params):
+            out.append({k: (v.isoformat() if isinstance(v, date) else float(v) if hasattr(v, "is_finite") else v)
+                        for k, v in r._mapping.items()})
+        return out
 
 
 @lru_cache(maxsize=1)
@@ -82,367 +60,171 @@ def db_date_range():
     if not eng:
         return None, None
     with eng.connect() as cx:
-        r = cx.execute(text("SELECT MIN(game_timestamp)::date, MAX(game_timestamp)::date FROM game_details")).fetchone()
-    return (r[0].isoformat() if r[0] else None, r[1].isoformat() if r[1] else None)
+        lo, hi = cx.execute(text("SELECT MIN(game_date), MAX(game_date) FROM games")).fetchone()
+    return (lo.isoformat() if lo else None, hi.isoformat() if hi else None)
 
 
-BOX_SELECT = """
-    SELECT p.player_id,
-           p.first_name || ' ' || p.last_name AS player,
-           t.abbreviation AS team,
-           gd.game_timestamp::date AS game_date,
-           CASE WHEN pbs.team_id = gd.home_team_id THEN at.abbreviation ELSE ht.abbreviation END AS opponent,
-           CASE WHEN pbs.team_id = gd.home_team_id THEN 'home' ELSE 'away' END AS venue,
-           pbs.points, pbs.assists,
-           pbs.offensive_reb + pbs.defensive_reb AS rebounds,
-           pbs.steals, pbs.blocks, pbs.turnovers,
-           ROUND((pbs.seconds / 60.0)::numeric, 1) AS minutes,
-           ht.abbreviation AS home_team, gd.home_points,
-           at.abbreviation AS away_team, gd.away_points
-    FROM player_box_scores pbs
-    JOIN players p ON pbs.person_id = p.player_id
-    JOIN teams t ON pbs.team_id = t.team_id
-    JOIN game_details gd ON pbs.game_id = gd.game_id
-    JOIN teams ht ON gd.home_team_id = ht.team_id
-    JOIN teams at ON gd.away_team_id = at.team_id
-"""
+# --------------------------------------------------------------------------- tools
+
+def tool_search_records(a, ctx):
+    res = retrieval.search(eng, a["query"], k=int(a.get("k") or 8))
+    ctx["embed_tokens"] += res["embed_tokens"]
+    for stage, ms in res["timing_ms"].items():
+        ctx["timing_ms"][stage] = ctx["timing_ms"].get(stage, 0) + ms
+    ctx["retrieved"] += [h["doc_id"] for h in res["hits"]]
+    return {"filters_applied": res["filters"],
+            "passages": [{"id": h["doc_id"], "text": h["content"]} for h in res["hits"]]}
 
 
-def tool_search_players(name: str) -> list:
-    q = ALIASES.get(name.strip().lower(), name).strip().lower()
-    with eng.connect() as cx:
-        res = cx.execute(text("""
-            SELECT p.player_id,
-                   p.first_name || ' ' || p.last_name AS name,
-                   (SELECT t.abbreviation
-                      FROM player_box_scores b
-                      JOIN teams t ON b.team_id = t.team_id
-                      JOIN game_details g ON b.game_id = g.game_id
-                     WHERE b.person_id = p.player_id
-                     ORDER BY g.game_timestamp DESC LIMIT 1) AS latest_team,
-                   COUNT(pbs.game_id) AS games_in_db
-            FROM players p
-            LEFT JOIN player_box_scores pbs ON pbs.person_id = p.player_id
-            WHERE TRANSLATE(LOWER(p.first_name || ' ' || p.last_name), 'čćšžđņéèêáàâíìóòôúùûüñöäß', 'ccszdneeeaaaiiooouuuunoas') LIKE :q
-               OR TRANSLATE(LOWER(p.last_name), 'čćšžđņéèêáàâíìóòôúùûüñöäß', 'ccszdneeeaaaiiooouuuunoas') LIKE :q
-            GROUP BY p.player_id, p.first_name, p.last_name
-            ORDER BY games_in_db DESC
-            LIMIT 8
-        """), {"q": f"%{q}%"})
-        return rows_to_dicts(res)
-
-
-def tool_player_game_stats(player_id: int, game_date: Optional[str] = None,
-                           opponent: Optional[str] = None, limit: int = 5) -> list:
-    where = ["p.player_id = :pid"]
-    params = {"pid": player_id, "lim": max(1, min(int(limit or 5), 25))}
-    if game_date:
-        where.append("gd.game_timestamp::date = :d"); params["d"] = game_date
-    if opponent:
-        where.append("(ht.abbreviation = :opp OR at.abbreviation = :opp) AND t.abbreviation <> :opp")
-        params["opp"] = opponent.upper()
-    sql = BOX_SELECT + " WHERE " + " AND ".join(where) + " ORDER BY gd.game_timestamp DESC LIMIT :lim"
-    with eng.connect() as cx:
-        return rows_to_dicts(cx.execute(text(sql), params))
-
-
-def tool_player_averages(player_id: int, date_from: Optional[str] = None, date_to: Optional[str] = None) -> list:
-    where = ["pbs.person_id = :pid"]
-    params = {"pid": player_id}
-    if date_from:
-        where.append("gd.game_timestamp::date >= :df"); params["df"] = date_from
-    if date_to:
-        where.append("gd.game_timestamp::date <= :dt"); params["dt"] = date_to
-    with eng.connect() as cx:
-        res = cx.execute(text(f"""
-            SELECT p.first_name || ' ' || p.last_name AS player,
-                   COUNT(*) AS games,
-                   ROUND(AVG(pbs.points)::numeric, 1) AS ppg,
-                   ROUND(AVG(pbs.assists)::numeric, 1) AS apg,
-                   ROUND(AVG(pbs.offensive_reb + pbs.defensive_reb)::numeric, 1) AS rpg,
-                   ROUND(AVG(pbs.steals)::numeric, 1) AS spg,
-                   ROUND(AVG(pbs.blocks)::numeric, 1) AS bpg,
-                   MAX(pbs.points) AS high_points,
-                   MIN(gd.game_timestamp)::date AS first_game,
-                   MAX(gd.game_timestamp)::date AS last_game
-            FROM player_box_scores pbs
-            JOIN players p ON pbs.person_id = p.player_id
-            JOIN game_details gd ON pbs.game_id = gd.game_id
-            WHERE {' AND '.join(where)}
-            GROUP BY p.player_id, p.first_name, p.last_name
-        """), params)
-        return rows_to_dicts(res)
-
-
-def tool_top_performances(stat="points", n=10, date_from=None, date_to=None, team=None, triple_double=False) -> list:
-    col = STAT_COLUMNS.get(stat, STAT_COLUMNS["points"])
-    where, params = [], {"lim": max(1, min(int(n or 10), 25))}
-    if date_from:
-        where.append("gd.game_timestamp::date >= :df"); params["df"] = date_from
-    if date_to:
-        where.append("gd.game_timestamp::date <= :dt"); params["dt"] = date_to
-    if team:
-        where.append("t.abbreviation = :team"); params["team"] = team.upper()
-    if triple_double:
-        where.append("""(
-            (CASE WHEN pbs.points >= 10 THEN 1 ELSE 0 END) +
-            (CASE WHEN pbs.assists >= 10 THEN 1 ELSE 0 END) +
-            (CASE WHEN pbs.offensive_reb + pbs.defensive_reb >= 10 THEN 1 ELSE 0 END) +
-            (CASE WHEN pbs.steals >= 10 THEN 1 ELSE 0 END) +
-            (CASE WHEN pbs.blocks >= 10 THEN 1 ELSE 0 END)) >= 3""")
-    sql = BOX_SELECT + (" WHERE " + " AND ".join(where) if where else "") + \
-        f" ORDER BY {col} DESC, gd.game_timestamp DESC LIMIT :lim"
-    with eng.connect() as cx:
-        return rows_to_dicts(cx.execute(text(sql), params))
-
-
-def tool_game_results(team=None, game_date=None, date_from=None, date_to=None, n=10) -> list:
-    where, params = [], {"lim": max(1, min(int(n or 10), 50))}
-    if team:
-        where.append("(ht.abbreviation = :team OR at.abbreviation = :team)"); params["team"] = team.upper()
-    if game_date:
-        where.append("gd.game_timestamp::date = :d"); params["d"] = game_date
-    if date_from:
-        where.append("gd.game_timestamp::date >= :df"); params["df"] = date_from
-    if date_to:
-        where.append("gd.game_timestamp::date <= :dt"); params["dt"] = date_to
-    sql = f"""
-        SELECT gd.game_id, gd.game_timestamp::date AS game_date,
-               ht.abbreviation AS home_team, gd.home_points,
-               at.abbreviation AS away_team, gd.away_points,
-               CASE WHEN gd.home_points > gd.away_points THEN ht.abbreviation ELSE at.abbreviation END AS winner
-        FROM game_details gd
-        JOIN teams ht ON gd.home_team_id = ht.team_id
-        JOIN teams at ON gd.away_team_id = at.team_id
-        {('WHERE ' + ' AND '.join(where)) if where else ''}
-        ORDER BY gd.game_timestamp DESC LIMIT :lim
-    """
-    with eng.connect() as cx:
-        return rows_to_dicts(cx.execute(text(sql), params))
-
-
-TD_EXPR = """(
-            (CASE WHEN pbs.points >= 10 THEN 1 ELSE 0 END) +
-            (CASE WHEN pbs.assists >= 10 THEN 1 ELSE 0 END) +
-            (CASE WHEN pbs.offensive_reb + pbs.defensive_reb >= 10 THEN 1 ELSE 0 END) +
-            (CASE WHEN pbs.steals >= 10 THEN 1 ELSE 0 END) +
-            (CASE WHEN pbs.blocks >= 10 THEN 1 ELSE 0 END)) >= 3"""
-
-
-def _range_where(date_from, date_to, team, params):
+def _range(a, params, alias="pg"):
     where = []
-    if date_from:
-        where.append("gd.game_timestamp::date >= :df"); params["df"] = date_from
-    if date_to:
-        where.append("gd.game_timestamp::date <= :dt"); params["dt"] = date_to
-    if team:
-        where.append("t.abbreviation = :team"); params["team"] = team.upper()
+    if a.get("season"):
+        where.append(f"{alias}.season = :season"); params["season"] = a["season"]
+    if a.get("date_from"):
+        where.append(f"{alias}.game_date >= :df"); params["df"] = a["date_from"]
+    if a.get("date_to"):
+        where.append(f"{alias}.game_date <= :dt"); params["dt"] = a["date_to"]
+    if a.get("team"):
+        where.append(f"{alias}.team = :team"); params["team"] = a["team"].upper()
     return where
 
 
-def tool_triple_double_counts(date_from=None, date_to=None, team=None, n=10) -> list:
-    params = {"lim": max(1, min(int(n or 10), 30))}
-    where = [TD_EXPR] + _range_where(date_from, date_to, team, params)
-    with eng.connect() as cx:
-        return rows_to_dicts(cx.execute(text(f"""
-            SELECT p.first_name || ' ' || p.last_name AS player, t.abbreviation AS team,
-                   COUNT(*) AS triple_doubles,
-                   MIN(gd.game_timestamp)::date AS first, MAX(gd.game_timestamp)::date AS last
-            FROM player_box_scores pbs
-            JOIN players p ON pbs.person_id = p.player_id
-            JOIN teams t ON pbs.team_id = t.team_id
-            JOIN game_details gd ON pbs.game_id = gd.game_id
-            WHERE {' AND '.join(where)}
-            GROUP BY p.player_id, p.first_name, p.last_name, t.abbreviation
-            ORDER BY triple_doubles DESC LIMIT :lim
-        """), params))
+def tool_stat_leaders(a, ctx):
+    col = STATS.get(a.get("stat", "points"), "pts")
+    params = {"n": min(int(a.get("n") or 10), 25), "ming": max(1, int(a.get("min_games") or 20))}
+    where = _range(a, params)
+    return rows(f"""SELECT p.name AS player, MAX(pg.team) AS team, COUNT(*) AS games,
+                           ROUND(AVG(pg.{col})::numeric, 1) AS per_game, MAX(pg.{col}) AS best
+                    FROM player_games pg JOIN players p USING (player_id)
+                    {('WHERE ' + ' AND '.join(where)) if where else ''}
+                    GROUP BY p.player_id, p.name HAVING COUNT(*) >= :ming
+                    ORDER BY per_game DESC LIMIT :n""", params)
 
 
-def tool_stat_leaders(stat="points", date_from=None, date_to=None, team=None, min_games=10, n=10) -> list:
-    col = STAT_COLUMNS.get(stat, STAT_COLUMNS["points"])
-    params = {"lim": max(1, min(int(n or 10), 30)), "ming": max(1, int(min_games or 10))}
-    where = _range_where(date_from, date_to, team, params)
-    with eng.connect() as cx:
-        return rows_to_dicts(cx.execute(text(f"""
-            SELECT p.first_name || ' ' || p.last_name AS player, t.abbreviation AS team,
-                   COUNT(*) AS games,
-                   ROUND(AVG({col})::numeric, 1) AS per_game,
-                   MAX({col}) AS best_game
-            FROM player_box_scores pbs
-            JOIN players p ON pbs.person_id = p.player_id
-            JOIN teams t ON pbs.team_id = t.team_id
-            JOIN game_details gd ON pbs.game_id = gd.game_id
-            {('WHERE ' + ' AND '.join(where)) if where else ''}
-            GROUP BY p.player_id, p.first_name, p.last_name, t.abbreviation
-            HAVING COUNT(*) >= :ming
-            ORDER BY per_game DESC LIMIT :lim
-        """), params))
+def tool_player_averages(a, ctx):
+    found = retrieval.parse(a["player"], eng)["players"]
+    if not found:
+        return {"error": f"no player matching '{a['player']}'"}
+    params = {"pid": found[0][0]}
+    where = ["pg.player_id = :pid"] + _range(a, params)
+    return rows(f"""SELECT p.name AS player, pg.season, COUNT(*) AS games,
+                           ROUND(AVG(pts)::numeric, 1) AS ppg, ROUND(AVG(reb)::numeric, 1) AS rpg,
+                           ROUND(AVG(ast)::numeric, 1) AS apg, MAX(pts) AS high
+                    FROM player_games pg JOIN players p USING (player_id)
+                    WHERE {' AND '.join(where)} GROUP BY p.name, pg.season ORDER BY pg.season""", params)
 
 
-def tool_list_teams() -> list:
-    with eng.connect() as cx:
-        return rows_to_dicts(cx.execute(text("SELECT abbreviation, city, name FROM teams ORDER BY abbreviation")))
+def tool_triple_double_counts(a, ctx):
+    params = {"n": min(int(a.get("n") or 10), 25)}
+    where = [TD] + _range(a, params)
+    return rows(f"""SELECT p.name AS player, COUNT(*) AS triple_doubles
+                    FROM player_games pg JOIN players p USING (player_id)
+                    WHERE {' AND '.join(where)} GROUP BY p.name ORDER BY triple_doubles DESC LIMIT :n""", params)
 
 
-# --------------------------------------------------------------------------- live data
-
-class LiveDataUnavailable(Exception):
-    pass
-
-
-def _bdl(path: str, params: dict) -> list:
-    if not BALLDONTLIE_API_KEY:
-        raise LiveDataUnavailable("live data is not configured")
-    r = requests.get(f"{BALLDONTLIE_BASE_URL}/{path}", headers={"Authorization": BALLDONTLIE_API_KEY},
-                     params=params, timeout=10)
-    r.raise_for_status()
-    return r.json().get("data", [])
-
-
-def tool_live_games(game_date=None, days_back=0) -> list:
-    end = datetime.strptime(game_date, "%Y-%m-%d").date() if game_date else date.today()
-    out = []
-    for i in range(max(0, min(int(days_back or 0), 14)) + 1):
-        d = (end - timedelta(days=i)).isoformat()
-        for g in _bdl("games", {"dates[]": d}):
-            out.append({
-                "date": g.get("date"), "status": g.get("status"),
-                "home_team": g.get("home_team", {}).get("abbreviation"), "home_score": g.get("home_team_score"),
-                "visitor_team": g.get("visitor_team", {}).get("abbreviation"), "visitor_score": g.get("visitor_team_score"),
-            })
-    return out
-
-
-def tool_live_player_season_averages(name: str, season=None) -> dict:
-    name = ALIASES.get(name.strip().lower(), name)
-    players = _bdl("players", {"search": name.split()[-1], "per_page": 5})
-    if not players:
-        return {"error": "player not found in live API"}
-    p = players[0]
-    if not season:
-        now = date.today()
-        season = now.year if now.month >= 10 else now.year - 1
-    avg = _bdl("season_averages", {"season": season, "player_ids[]": p["id"]})
-    return {"player": f"{p['first_name']} {p['last_name']}", "team": (p.get("team") or {}).get("abbreviation"),
-            "season": season, "averages": avg[0] if avg else None}
-
-
-# --------------------------------------------------------------------------- tool registry
-
+RANGE_PROPS = {"season": {"type": "string", "description": "e.g. 2024-25"},
+               "date_from": {"type": "string"}, "date_to": {"type": "string"},
+               "team": {"type": "string", "description": "team abbreviation, e.g. OKC"}}
 TOOLS = [
-    {"name": "search_players",
-     "description": "Resolve a player name or nickname (e.g. 'SGA', 'Chet', 'Jokic') to a player_id. Always call this before any player stat tool.",
-     "input_schema": {"type": "object", "properties": {"name": {"type": "string"}}, "required": ["name"]}},
-    {"name": "player_game_stats",
-     "description": "Box score lines for one player from the historical database. Filter by exact game_date (YYYY-MM-DD) and/or opponent team abbreviation; otherwise returns the most recent games.",
-     "input_schema": {"type": "object", "properties": {
-         "player_id": {"type": "integer"}, "game_date": {"type": "string"}, "opponent": {"type": "string"},
-         "limit": {"type": "integer", "default": 5}}, "required": ["player_id"]}},
-    {"name": "player_averages",
-     "description": "Per-game averages and highs for a player over an optional date range (historical database).",
-     "input_schema": {"type": "object", "properties": {
-         "player_id": {"type": "integer"}, "date_from": {"type": "string"}, "date_to": {"type": "string"}},
-         "required": ["player_id"]}},
-    {"name": "top_performances",
-     "description": "Highest single-game performances for a stat (individual game lines). Set triple_double=true to list individual triple-double games. For rankings by count or average, use triple_double_counts or stat_leaders instead.",
-     "input_schema": {"type": "object", "properties": {
-         "stat": {"type": "string", "enum": list(STAT_COLUMNS.keys())}, "n": {"type": "integer", "default": 10},
-         "date_from": {"type": "string"}, "date_to": {"type": "string"}, "team": {"type": "string"},
-         "triple_double": {"type": "boolean", "default": False}}}},
-    {"name": "game_results",
-     "description": "Final scores from the historical database, filtered by team abbreviation, exact date, or date range. Use for 'who won', 'what games happened on', and schedules within the database range.",
-     "input_schema": {"type": "object", "properties": {
-         "team": {"type": "string"}, "game_date": {"type": "string"}, "date_from": {"type": "string"},
-         "date_to": {"type": "string"}, "n": {"type": "integer", "default": 10}}}},
-    {"name": "triple_double_counts",
-     "description": "Players ranked by number of triple-doubles (historical database). Use for 'most triple-doubles'. Optional date range and team.",
-     "input_schema": {"type": "object", "properties": {
-         "date_from": {"type": "string"}, "date_to": {"type": "string"}, "team": {"type": "string"}, "n": {"type": "integer", "default": 10}}}},
+    {"name": "search_records",
+     "description": "Retrieve passages about specific games and player performances (scores, box-score lines, who won, "
+                    "how a player did on a date or against a team). Pass the user's question, rewritten to stand alone "
+                    "if it refers to earlier turns. Names, teams, dates and seasons in the query are used as filters.",
+     "input_schema": {"type": "object", "properties": {"query": {"type": "string"}, "k": {"type": "integer", "default": 8}},
+                      "required": ["query"]}},
     {"name": "stat_leaders",
-     "description": "Players ranked by per-game average for a stat (historical database). Use for 'best scorer/rebounder/passer', 'who averages the most'. Optional date range, team filter, and minimum games.",
-     "input_schema": {"type": "object", "properties": {
-         "stat": {"type": "string", "enum": list(STAT_COLUMNS.keys())}, "date_from": {"type": "string"}, "date_to": {"type": "string"},
-         "team": {"type": "string"}, "min_games": {"type": "integer", "default": 10}, "n": {"type": "integer", "default": 10}}}},
-    {"name": "list_teams",
-     "description": "All team abbreviations with city and name. Use when unsure of an abbreviation.",
-     "input_schema": {"type": "object", "properties": {}}},
-    {"name": "live_games",
-     "description": "Live/recent scores from the balldontlie API. Use ONLY for dates after the historical database ends. game_date defaults to today; days_back looks further back.",
-     "input_schema": {"type": "object", "properties": {
-         "game_date": {"type": "string"}, "days_back": {"type": "integer", "default": 0}}}},
-    {"name": "live_player_season_averages",
-     "description": "Current-season averages for a player from the live API. Use for seasons after the historical database ends.",
-     "input_schema": {"type": "object", "properties": {
-         "name": {"type": "string"}, "season": {"type": "integer"}}, "required": ["name"]}},
+     "description": "Players ranked by per-game average for a stat. Use for 'who leads', 'best scorer', 'most per game'.",
+     "input_schema": {"type": "object", "properties": {"stat": {"type": "string", "enum": list(STATS)},
+                                                       "min_games": {"type": "integer", "default": 20},
+                                                       "n": {"type": "integer", "default": 10}} | RANGE_PROPS}},
+    {"name": "player_averages",
+     "description": "A player's per-game averages by season, with an optional date range.",
+     "input_schema": {"type": "object", "properties": {"player": {"type": "string"}} | RANGE_PROPS, "required": ["player"]}},
+    {"name": "triple_double_counts",
+     "description": "Players ranked by number of triple-doubles.",
+     "input_schema": {"type": "object", "properties": {"n": {"type": "integer", "default": 10}} | RANGE_PROPS}},
 ]
-
-TOOL_FUNCS = {
-    "search_players": lambda a: tool_search_players(a["name"]),
-    "player_game_stats": lambda a: tool_player_game_stats(a["player_id"], a.get("game_date"), a.get("opponent"), a.get("limit", 5)),
-    "player_averages": lambda a: tool_player_averages(a["player_id"], a.get("date_from"), a.get("date_to")),
-    "top_performances": lambda a: tool_top_performances(a.get("stat", "points"), a.get("n", 10), a.get("date_from"), a.get("date_to"), a.get("team"), a.get("triple_double", False)),
-    "game_results": lambda a: tool_game_results(a.get("team"), a.get("game_date"), a.get("date_from"), a.get("date_to"), a.get("n", 10)),
-    "triple_double_counts": lambda a: tool_triple_double_counts(a.get("date_from"), a.get("date_to"), a.get("team"), a.get("n", 10)),
-    "stat_leaders": lambda a: tool_stat_leaders(a.get("stat", "points"), a.get("date_from"), a.get("date_to"), a.get("team"), a.get("min_games", 10), a.get("n", 10)),
-    "list_teams": lambda a: tool_list_teams(),
-    "live_games": lambda a: tool_live_games(a.get("game_date"), a.get("days_back", 0)),
-    "live_player_season_averages": lambda a: tool_live_player_season_averages(a["name"], a.get("season")),
-}
+TOOL_FUNCS = {"search_records": tool_search_records, "stat_leaders": tool_stat_leaders,
+              "player_averages": tool_player_averages, "triple_double_counts": tool_triple_double_counts}
 
 
 def system_prompt() -> str:
     lo, hi = db_date_range()
-    return f"""You are Courtside, an NBA statistics assistant with a focus on the Oklahoma City Thunder.
+    return f"""You are Courtside, an NBA statistics assistant.
 
-Today is {date.today().isoformat()}.
-The historical database covers games from {lo or 'unknown'} to {hi or 'unknown'}. For anything after {hi or 'that range'}, use the live_* tools.
+Today is {date.today().isoformat()}. The database holds regular-season games from {lo} to {hi}.
 
 Rules:
-- Always resolve a player with search_players before calling a player stat tool. If several match, prefer the one with the most games_in_db unless the question implies otherwise.
-- Answer ONLY from tool results. Never estimate or recall statistics from memory.
-- If a tool returns no data or an error, stop and tell the user. Do not retry the same lookup through other tools.
-- A date or holiday without a year (e.g. "4/8", "Christmas") means its most recent occurrence INSIDE the database range. Only use live data when the user clearly means the current or upcoming season.
-- For "most", "best", "who leads" questions, use the aggregate tools (stat_leaders, triple_double_counts, player_averages) rather than counting rows yourself.
-- Be concise: lead with the number asked for, then one line of context (opponent, result). Plain text, no markdown tables."""
+- For a specific game, date, matchup or player performance, call search_records and answer from the passages it returns.
+- For rankings, averages or counts across many games, use stat_leaders, player_averages or triple_double_counts.
+- Answer ONLY from tool results. Never use statistics from memory. If the results don't contain the answer, say so.
+- A date without a year means its most recent occurrence in the database unless the question implies otherwise.
+- Cite the passage ids you used in square brackets, e.g. [line:0022401153:1628983].
+- Be concise: lead with the number or result asked for, then one line of context. Plain text, no markdown."""
 
 
-# --------------------------------------------------------------------------- agent loop
+def strip_markdown(s: str) -> str:
+    s = re.sub(r"\*\*(.+?)\*\*", r"\1", s)
+    s = re.sub(r"^#{1,6}\s*", "", s, flags=re.M)
+    return s.replace("`", "")
 
-def strip_markdown(text_: str) -> str:
-    text_ = re.sub(r"\*\*(.+?)\*\*", r"\1", text_)
-    text_ = re.sub(r"(?<!\w)\*(.+?)\*(?!\w)", r"\1", text_)
-    text_ = re.sub(r"^#{1,6}\s*", "", text_, flags=re.M)
-    return text_.replace("`", "")
+
+def _cost(ctx):
+    embed = ctx["embed_tokens"] / 1e6 * EMBED_PRICE_PER_M
+    if PRICE_IN_PER_M is None or PRICE_OUT_PER_M is None:
+        return None
+    return round(ctx["input_tokens"] / 1e6 * PRICE_IN_PER_M + ctx["output_tokens"] / 1e6 * PRICE_OUT_PER_M + embed, 6)
 
 
 def run_agent(question: str) -> dict:
+    t0 = time.perf_counter()
+    ctx = {"input_tokens": 0, "output_tokens": 0, "embed_tokens": 0, "timing_ms": {}, "retrieved": [], "llm_calls": 0}
     messages = [{"role": "user", "content": question}]
-    calls = []
+    calls, answer = [], None
+
+    def call_llm(**kw):
+        t = time.perf_counter()
+        resp = llm.messages.create(model=MODEL_ID, system=system_prompt(), messages=messages, **kw)
+        ctx["timing_ms"]["generate"] = ctx["timing_ms"].get("generate", 0) + round((time.perf_counter() - t) * 1000, 1)
+        ctx["llm_calls"] += 1
+        if getattr(resp, "usage", None):
+            ctx["input_tokens"] += resp.usage.input_tokens or 0
+            ctx["output_tokens"] += resp.usage.output_tokens or 0
+        return resp
+
     for _ in range(MAX_TOOL_ROUNDS):
-        resp = llm.messages.create(model=MODEL_ID, max_tokens=2500, system=system_prompt(), tools=TOOLS, messages=messages)
+        resp = call_llm(max_tokens=2500, tools=TOOLS)
         messages.append({"role": "assistant", "content": resp.content})
         if resp.stop_reason != "tool_use":
-            answer = strip_markdown(" ".join(b.text for b in resp.content if b.type == "text").strip())
-            return {"answer": answer or "I couldn't produce an answer for that.", "evidence": calls}
+            answer = " ".join(b.text for b in resp.content if b.type == "text").strip()
+            break
         results = []
         for block in resp.content:
             if block.type != "tool_use":
                 continue
             try:
-                out = TOOL_FUNCS[block.name](block.input or {})
-            except LiveDataUnavailable:
-                out = {"error": "Live data is unavailable right now. Tell the user this date is outside the historical database and live scores are not available."}
+                out = TOOL_FUNCS[block.name](block.input or {}, ctx)
             except Exception:
                 log.exception("tool %s failed", block.name)
-                out = {"error": f"{block.name} failed; try a different query"}
+                out = {"error": f"{block.name} failed"}
             calls.append({"tool": block.name, "input": block.input})
             results.append({"type": "tool_result", "tool_use_id": block.id, "content": json.dumps(out, default=str)[:12000]})
         messages.append({"role": "user", "content": results})
-    # Round limit hit: force a final answer from whatever was gathered.
-    messages.append({"role": "user", "content": "Stop using tools. Answer now from the results above, or say what you could not find."})
-    resp = llm.messages.create(model=MODEL_ID, max_tokens=400, system=system_prompt(), messages=messages)
-    answer = strip_markdown(" ".join(b.text for b in resp.content if b.type == "text").strip())
-    return {"answer": answer or "I couldn't find that in the available data.", "evidence": calls}
+    if answer is None:
+        messages.append({"role": "user", "content": "Stop using tools. Answer now from the results above, or say what you could not find."})
+        resp = call_llm(max_tokens=400)
+        answer = " ".join(b.text for b in resp.content if b.type == "text").strip()
+
+    cited = re.findall(r"\[((?:line|game):[\w:]+)\]", answer or "")
+    evidence = [{"table": "documents", "id": d} for d in dict.fromkeys(cited or ctx["retrieved"][:3])]
+    usage = {"model": MODEL_ID, "llm_calls": ctx["llm_calls"], "input_tokens": ctx["input_tokens"],
+             "output_tokens": ctx["output_tokens"], "embed_tokens": ctx["embed_tokens"],
+             "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
+             "timing_ms": {k: round(v, 1) for k, v in ctx["timing_ms"].items()},
+             "cost_usd": _cost(ctx), "tools": [c["tool"] for c in calls]}
+    log.info("usage %s", json.dumps(usage))
+    return {"answer": strip_markdown(answer or "") or "I couldn't find that in the available data.",
+            "evidence": evidence, "trace": calls, "usage": usage}
 
 
 # --------------------------------------------------------------------------- HTTP
@@ -467,6 +249,16 @@ def chat(q: Q):
         return {"answer": "Something went wrong answering that. Please try again in a moment.", "evidence": []}
 
 
+@app.get("/api/search")
+def search(q: str, k: int = 8, mode: str = "filtered"):
+    """Retrieval only, no generation. Useful for debugging what the model will see."""
+    if mode not in ("filtered", "vector", "fusion"):
+        mode = "filtered"
+    return retrieval.search(eng, q[:500], k=max(1, min(k, 25)), mode=mode)
+
+
 @app.get("/api/health")
 def health():
-    return {"status": "ok", "db_configured": eng is not None, "ai_configured": llm is not None, "model": MODEL_ID}
+    lo, hi = db_date_range()
+    return {"status": "ok", "db_configured": eng is not None, "ai_configured": llm is not None,
+            "model": MODEL_ID, "data_from": lo, "data_to": hi}
