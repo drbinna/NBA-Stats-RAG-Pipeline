@@ -98,7 +98,7 @@ The retrieval set is built from the database with a fixed seed: questions about 
 
 | Layer | Technology |
 |---|---|
-| Frontend | Angular 15 |
+| Frontend | React 19, TypeScript, Vite, Tailwind CSS 4, shadcn/ui structure |
 | API | Python, FastAPI on Vercel Functions |
 | Database | PostgreSQL with pgvector (HNSW, cosine), on Neon |
 | Embeddings | `nomic-ai/nomic-embed-text-v1.5`, 768 dimensions, via Fireworks AI (or locally with fastembed) |
@@ -115,7 +115,7 @@ python -m tests.retrieval_eval --set hard # retrieval metrics (also --set standa
 python -m tests.eval                      # answer accuracy, latency, tokens, cost
 
 uvicorn backend.server:app --reload --port 8000
-cd frontend && npm install && npm start   # http://localhost:4200
+cd frontend && npm install && npm run dev  # http://localhost:5173, proxies /api to port 8000
 ```
 
 `python -m backend.ingest --seasons 2024-25` loads one season. `EMBED_PROVIDER=local` embeds on your machine with the same model instead of calling Fireworks. Re-running ingest replaces every table.

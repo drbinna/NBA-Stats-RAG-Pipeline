@@ -72,6 +72,7 @@ def tool_search_records(a, ctx):
     for stage, ms in res["timing_ms"].items():
         ctx["timing_ms"][stage] = ctx["timing_ms"].get(stage, 0) + ms
     ctx["retrieved"] += [h["doc_id"] for h in res["hits"]]
+    ctx["passages"].update({h["doc_id"]: h["content"] for h in res["hits"]})
     return {"filters_applied": res["filters"],
             "passages": [{"id": h["doc_id"], "text": h["content"]} for h in res["hits"]]}
 
@@ -179,7 +180,7 @@ def _cost(ctx):
 
 def run_agent(question: str) -> dict:
     t0 = time.perf_counter()
-    ctx = {"input_tokens": 0, "output_tokens": 0, "embed_tokens": 0, "timing_ms": {}, "retrieved": [], "llm_calls": 0}
+    ctx = {"input_tokens": 0, "output_tokens": 0, "embed_tokens": 0, "timing_ms": {}, "retrieved": [], "passages": {}, "llm_calls": 0}
     messages = [{"role": "user", "content": question}]
     calls, answer = [], None
 
@@ -218,6 +219,7 @@ def run_agent(question: str) -> dict:
 
     cited = re.findall(r"\[((?:line|game):[\w:]+)\]", answer or "")
     evidence = [{"table": "documents", "id": d} for d in dict.fromkeys(cited or ctx["retrieved"][:3])]
+    sources = [{"id": e["id"], "text": ctx["passages"][e["id"]]} for e in evidence if e["id"] in ctx["passages"]]
     usage = {"model": MODEL_ID, "llm_calls": ctx["llm_calls"], "input_tokens": ctx["input_tokens"],
              "output_tokens": ctx["output_tokens"], "embed_tokens": ctx["embed_tokens"],
              "latency_ms": round((time.perf_counter() - t0) * 1000, 1),
@@ -225,7 +227,7 @@ def run_agent(question: str) -> dict:
              "cost_usd": _cost(ctx), "tools": [c["tool"] for c in calls]}
     log.info("usage %s", json.dumps(usage))
     return {"answer": strip_markdown(answer or "") or "I couldn't find that in the available data.",
-            "evidence": evidence, "trace": calls, "usage": usage}
+            "evidence": evidence, "sources": sources, "trace": calls, "usage": usage}
 
 
 # --------------------------------------------------------------------------- HTTP
